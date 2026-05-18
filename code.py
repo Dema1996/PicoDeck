@@ -75,13 +75,71 @@ encoder_steps = 0
 # MENU SETUP
 # =========================
 
-menu_items = [
-    "Spotlight",
-    "Mission Control",
-    "Mute",
-    "Screenshot",
-    "Lock Mac"
-]
+menus = {
+
+    "main": [
+        {
+            "label": "Media",
+            "submenu": "media"
+        },
+        {
+            "label": "System",
+            "submenu": "system"
+        },
+        {
+            "label": "Coding",
+            "submenu": "coding"
+        }
+    ],
+
+    "media": [
+        {
+            "label": "Play/Pause",
+            "action": "play_pause"
+        },
+        {
+            "label": "Next Track",
+            "action": "next_track"
+        },
+        {
+            "label": "Volume Up",
+            "action": "volume_up"
+        },
+        {
+            "label": "Zurueck",
+            "action": "back"
+        }
+    ],
+
+    "system": [
+        {
+            "label": "Spotlight",
+            "action": "spotlight"
+        },
+        {
+            "label": "Lock Mac",
+            "action": "lock_mac"
+        },
+        {
+            "label": "Zurueck",
+            "action": "back"
+        }
+    ],
+
+    "coding": [
+        {
+            "label": "VSCode",
+            "action": "open_vscode"
+        },
+        {
+            "label": "Zurueck",
+            "action": "back"
+        }
+    ]
+}
+
+current_menu = "main"
+menu_stack = []
 
 selected_index = 0
 last_selected_index = -1
@@ -92,23 +150,18 @@ last_selected_index = -1
 # =========================
 
 def draw_menu():
-    global last_selected_index
-
-    if selected_index == last_selected_index:
-        return
-
-    last_selected_index = selected_index
-
     lcd.clear()
 
-    first_line = "> " + menu_items[selected_index]
+    items = menus[current_menu]
+    item = items[selected_index]["label"]
 
-    if selected_index + 1 < len(menu_items):
-        second_line = "  " + menu_items[selected_index + 1]
-    else:
-        second_line = ""
+    header = current_menu.upper()
+    counter = str(selected_index + 1) + "/" + str(len(items))
 
-    lcd.message = first_line[:16] + "\n" + second_line[:16]
+    line1 = header[:10] + " " + counter
+    line2 = "> " + item
+
+    lcd.message = line1[:16] + "\n" + line2[:16]
 
 
 def show_message(line1, line2=""):
@@ -126,29 +179,71 @@ def send_shortcut(*keys):
     keyboard.release_all()
 
 
-def run_action(index):
-    action = menu_items[index]
+def run_action():
 
-    show_message("Aktion:", action)
-    time.sleep(0.4)
+    global current_menu
+    global selected_index
+    global last_selected_index
 
-    if action == "Spotlight":
-        send_shortcut(Keycode.COMMAND, Keycode.SPACE)
+    item = menus[current_menu][selected_index]
 
-    elif action == "Mission Control":
-        send_shortcut(Keycode.CONTROL, Keycode.UP_ARROW)
+    # Untermenü öffnen
+    if "submenu" in item:
 
-    elif action == "Mute":
-        send_shortcut(Keycode.COMMAND, Keycode.SHIFT, Keycode.M)
+        menu_stack.append(current_menu)
 
-    elif action == "Screenshot":
-        send_shortcut(Keycode.COMMAND, Keycode.SHIFT, Keycode.FIVE)
+        current_menu = item["submenu"]
 
-    elif action == "Lock Mac":
-        send_shortcut(Keycode.CONTROL, Keycode.COMMAND, Keycode.Q)
+        selected_index = 0
+        last_selected_index = -1
 
-    time.sleep(0.3)
-    draw_menu()
+        draw_menu()
+
+        return
+
+    # Aktion ausführen
+    if "action" in item:
+
+        action = item["action"]
+
+        if action == "back":
+            if len(menu_stack) > 0:
+                current_menu = menu_stack.pop()
+                selected_index = 0
+                last_selected_index = -1
+
+                draw_menu()
+
+            return
+        
+        show_message("Action", action)
+
+        if action == "spotlight":
+            send_shortcut(Keycode.COMMAND, Keycode.SPACE)
+
+        elif action == "lock_mac":
+            send_shortcut(
+                Keycode.CONTROL,
+                Keycode.COMMAND,
+                Keycode.Q
+            )
+
+        elif action == "play_pause":
+            send_shortcut(Keycode.SPACEBAR)
+
+        elif action == "next_track":
+            send_shortcut(Keycode.RIGHT_ARROW)
+
+        elif action == "volume_up":
+            #send_shortcut(Keycode.VOLUME_INCREMENT)
+            send_shortcut(Keycode.F12)
+
+        elif action == "open_vscode":
+            send_shortcut(Keycode.COMMAND, Keycode.SPACE)
+
+        time.sleep(0.3)
+
+        draw_menu()
 
 
 # =========================
@@ -198,7 +293,7 @@ def handle_encoder():
     # viele Encoder liefern 4 Teilschritte pro Rastung
     if encoder_steps >= 2:
         selected_index += 1
-        if selected_index >= len(menu_items):
+        if selected_index >= len(menus[current_menu]):
             selected_index = 0
 
         encoder_steps = 0
@@ -207,7 +302,7 @@ def handle_encoder():
     elif encoder_steps <= -2:
         selected_index -= 1
         if selected_index < 0:
-            selected_index = len(menu_items) - 1
+            selected_index = len(menus[current_menu]) - 1
 
         encoder_steps = 0
         draw_menu()
@@ -216,7 +311,7 @@ def handle_encoder_button():
 
     if is_pressed(encoder_sw):
 
-        run_action(selected_index)
+        run_action()
 
         wait_until_released(encoder_sw)
 
@@ -243,7 +338,7 @@ while True:
     if is_pressed(btn_up):
         selected_index -= 1
         if selected_index < 0:
-            selected_index = len(menu_items) - 1
+            selected_index = len(menus[current_menu]) - 1
 
         draw_menu()
         wait_until_released(btn_up)
@@ -251,7 +346,7 @@ while True:
 
     if is_pressed(btn_down):
         selected_index += 1
-        if selected_index >= len(menu_items):
+        if selected_index >= len(menus[current_menu]):
             selected_index = 0
 
         draw_menu()
@@ -259,14 +354,16 @@ while True:
         time.sleep(0.15)
 
     if is_pressed(btn_select):
-        run_action(selected_index)
+        run_action()
         wait_until_released(btn_select)
         time.sleep(0.15)
 
     if is_pressed(btn_back):
-        show_message("Zurueck", "Hauptmenue")
-        time.sleep(0.5)
-        draw_menu()
+        if len(menu_stack) > 0:
+            current_menu = menu_stack.pop()
+            selected_index = 0
+            last_selected_index = -1
+            draw_menu()
         wait_until_released(btn_back)
         time.sleep(0.15)
 
