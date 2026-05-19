@@ -1,31 +1,28 @@
-import time
 import board
 import digitalio
 from display import spi
 
-# Calibration: raw XPT2046 values at screen edges.
-# Run a calibration sketch or adjust these until taps line up with the UI.
-# Swap X_MIN/X_MAX or Y_MIN/Y_MAX if the axis is inverted.
-_X_MIN = 200
-_X_MAX = 3800
-_Y_MIN = 300
-_Y_MAX = 3700
+# Calibration: CMD_X (0xD0) is the physical vertical axis on this display,
+# CMD_Y (0x90) is the physical horizontal axis — so they are swapped below.
+# _X_MIN/_X_MAX calibrate screen-x from CMD_Y raw values.
+# _Y_MIN/_Y_MAX calibrate screen-y from CMD_X raw values.
+_X_MIN = 3564
+_X_MAX = 515
+_Y_MIN = 3760
+_Y_MAX = 538
+_W = 240
+_H = 320
+
+_TOUCH_Z_THRESHOLD = 200  # Z1 value above this = screen is pressed
 
 _cs = digitalio.DigitalInOut(board.GP17)
 _cs.direction = digitalio.Direction.OUTPUT
 _cs.value = True
 
-_irq = digitalio.DigitalInOut(board.GP18)
-_irq.direction = digitalio.Direction.INPUT
-_irq.pull = digitalio.Pull.UP
-
-# XPT2046 command bytes (12-bit differential, power-down between conversions)
-_CMD_X = 0xD0   # S=1, A2-A0=101 (X), MODE=0, SER=0, PD=00
-_CMD_Y = 0x90   # S=1, A2-A0=001 (Y), MODE=0, SER=0, PD=00
-
-
-def is_touched():
-    return not _irq.value
+# XPT2046 command bytes (12-bit differential)
+_CMD_X  = 0xD0
+_CMD_Y  = 0x90
+_CMD_Z1 = 0xB0
 
 
 def _read_raw(command):
@@ -39,7 +36,7 @@ def _read_raw(command):
     finally:
         spi.unlock()
     _cs.value = True
-    return ((buf[1] << 8) | buf[2]) >> 3  # 12-bit result
+    return ((buf[1] << 8) | buf[2]) >> 3
 
 
 def _clamp(v, lo, hi):
@@ -47,11 +44,11 @@ def _clamp(v, lo, hi):
 
 
 def read_position():
-    """Returns (x, y) in screen coordinates (0-319, 0-239), or None if not touched."""
-    if not is_touched():
+    """Returns (x, y) in screen coordinates if touched, else None."""
+    if _read_raw(_CMD_Z1) < _TOUCH_Z_THRESHOLD:
         return None
-    raw_x = _read_raw(_CMD_X)
-    raw_y = _read_raw(_CMD_Y)
-    x = int((raw_x - _X_MIN) * 320 / (_X_MAX - _X_MIN))
-    y = int((raw_y - _Y_MIN) * 240 / (_Y_MAX - _Y_MIN))
-    return _clamp(x, 0, 319), _clamp(y, 0, 239)
+    raw_horiz = _read_raw(_CMD_Y)  # CMD_Y = physical horizontal = screen X
+    raw_vert  = _read_raw(_CMD_X)  # CMD_X = physical vertical  = screen Y
+    x = int((raw_horiz - _X_MIN) * _W / (_X_MAX - _X_MIN))
+    y = int((raw_vert  - _Y_MIN) * _H / (_Y_MAX - _Y_MIN))
+    return _clamp(x, 0, _W - 1), _clamp(y, 0, _H - 1)

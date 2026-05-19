@@ -6,8 +6,29 @@ menus = {
         {"label": "System",   "submenu": "system"},
         {"label": "Coding",   "submenu": "coding"},
         {"label": "Encoder",  "submenu": "encoder"},
-        {"label": "Buttons",  "submenu": "buttons"},
-        {"label": "Profiles", "submenu": "profiles"},
+        {"label": "Settings", "submenu": "settings"},
+    ],
+    "settings": [
+        {"label": "Buttons",     "submenu": "buttons"},
+        {"label": "Profile",     "submenu": "profiles"},
+        {"label": "WiFi Konfig", "action": "toggle_wifi"},
+        {"label": "Enc. Richt.", "action": "toggle_encoder_dir"},
+        {"label": "Enc. Speed",  "submenu": "encoder_speed"},
+        {"label": "Hold-Zeit",   "submenu": "hold_time"},
+        {"label": "Alles Reset", "action": "reset_button_defaults"},
+        {"label": "Zurueck",     "action": "back"},
+    ],
+    "encoder_speed": [
+        {"label": "Langsam",  "action": "encoder_speed_slow"},
+        {"label": "Normal",   "action": "encoder_speed_normal"},
+        {"label": "Schnell",  "action": "encoder_speed_fast"},
+        {"label": "Zurueck",  "action": "back"},
+    ],
+    "hold_time": [
+        {"label": "0.5 Sek",  "action": "hold_time_05"},
+        {"label": "1.0 Sek",  "action": "hold_time_10"},
+        {"label": "2.0 Sek",  "action": "hold_time_20"},
+        {"label": "Zurueck",  "action": "back"},
     ],
     "media": [
         {"label": "Play/Pause",   "action": "play_pause"},
@@ -37,13 +58,16 @@ menus = {
         {"label": "Lock Mac",     "action": "lock_mac"},
         {"label": "Show Desktop", "action": "show_desktop"},
         {"label": "Close Window", "action": "close_window"},
+        {"label": "Mac Bright+",  "action": "mac_brightness_up"},
+        {"label": "Mac Bright-",  "action": "mac_brightness_down"},
         {"label": "Zurueck",      "action": "back"},
     ],
     "encoder": [
-        {"label": "Navigate",   "action": "encoder_navigate"},
-        {"label": "Volume",     "action": "encoder_volume"},
-        {"label": "Brightness", "action": "encoder_brightness"},
-        {"label": "Zurueck",    "action": "back"},
+        {"label": "Navigate",    "action": "encoder_navigate"},
+        {"label": "Volume",      "action": "encoder_volume"},
+        {"label": "Brightness",  "action": "encoder_brightness"},
+        {"label": "Mac Bright",  "action": "encoder_mac_brightness"},
+        {"label": "Zurueck",     "action": "back"},
     ],
 }
 
@@ -71,9 +95,20 @@ def format_action_label(action):
         "new_terminal":     "New Terminal",
         "split_editor":     "Split Editor",
         "close_window":     "Close Window",
-        "encoder_navigate": "Enc Nav",
-        "encoder_volume":   "Enc Vol",
-        "encoder_brightness": "Enc Bright",
+        "encoder_navigate":       "Enc Nav",
+        "encoder_volume":         "Enc Vol",
+        "encoder_brightness":     "Enc Bright",
+        "encoder_mac_brightness": "Enc MacBrt",
+        "mac_brightness_up":      "Mac Brt+",
+        "mac_brightness_down":    "Mac Brt-",
+        "toggle_wifi":            "WiFi",
+        "toggle_encoder_dir":     "Enc Richt.",
+        "encoder_speed_slow":     "Enc Slow",
+        "encoder_speed_normal":   "Enc Normal",
+        "encoder_speed_fast":     "Enc Fast",
+        "hold_time_05":           "Hold 0.5s",
+        "hold_time_10":           "Hold 1.0s",
+        "hold_time_20":           "Hold 2.0s",
     }
     if action.startswith("profile:"):
         profile_name = action.split(":", 1)[1]
@@ -90,13 +125,17 @@ def get_assignment_target(item):
 
 def get_menu_header(menu_name):
     profile_short = state.profile_labels[state.current_profile][:3].upper()
-    encoder_short = {"navigate": "NAV", "volume": "VOL", "brightness": "BRT"}[state.encoder_mode]
+    enc_dir = "R" if state.encoder_reversed else "N"
+    encoder_short = {"navigate": "NAV", "volume": "VOL", "brightness": str(state.brightness) + "%", "mac_brightness": "MBRT"}[state.encoder_mode]
     headers = {
         "main":          "M " + profile_short + " " + encoder_short,
         "media":         "MEDIA " + encoder_short,
         "system":        "SYSTEM " + encoder_short,
         "coding":        "CODING " + encoder_short,
         "encoder":       "ENC " + profile_short,
+        "settings":      "SETTINGS",
+        "encoder_speed": "ENC SPEED",
+        "hold_time":     "HOLD TIME",
         "buttons":       "BTN " + state.profile_labels[state.current_profile][:6].upper(),
         "button_detail": state.button_pins[state.current_button_target],
         "profiles":      "PROF " + encoder_short,

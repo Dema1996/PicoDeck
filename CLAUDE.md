@@ -79,4 +79,6 @@ Each profile (`default`, `coding`, `media`) has its own factory defaults in `def
 
 Buttons use `INPUT_PULLUP`; pressed = `LOW`.
 
-Display: AZDelivery 2.4" ILI9341 SPI (320×240, landscape). All SPI devices share SPI0 on GP2–GP4 with separate CS pins. Touch calibration constants are at the top of `touch.py` (`_X_MIN/_X_MAX/_Y_MIN/_Y_MAX`).
+Display: AZDelivery 2.4" ILI9341 SPI (240×320, portrait). All SPI devices share SPI0 on GP2–GP4 with separate CS pins.
+
+**Touch (XPT2046) axis quirk:** On this board, the XPT2046 CMD_X channel (0xD0) is the physical *vertical* axis and CMD_Y (0x90) is the physical *horizontal* axis — the opposite of what the channel names suggest. `touch.py` reads CMD_Y for screen-X and CMD_X for screen-Y. Calibration constants (`_X_MIN/_X_MAX/_Y_MIN/_Y_MAX`) reflect this swap. Both axes are also inverted (MIN > MAX), so the min/max values are intentionally reversed.

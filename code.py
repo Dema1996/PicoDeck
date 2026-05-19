@@ -1,6 +1,7 @@
 import time
 import board
 import digitalio
+import supervisor
 
 import state
 import menus
@@ -9,6 +10,7 @@ import actions
 import persistence
 import touch
 import sdcard
+import wifi_server
 
 
 # =========================
@@ -58,23 +60,21 @@ def handle_encoder():
         state.encoder_steps += 1
     state.last_encoder_state = current_state
     state.last_encoder_time = now
-    if state.encoder_steps >= 2:
+    if state.encoder_steps >= state.encoder_threshold:
+        step = -1 if state.encoder_reversed else 1
         if state.encoder_mode == "navigate":
-            state.selected_index += 1
-            if state.selected_index >= len(menus.get_menu_items(state.current_menu)):
-                state.selected_index = 0
+            state.selected_index = (state.selected_index + step) % len(menus.get_menu_items(state.current_menu))
             display.draw_menu()
         else:
-            actions.handle_encoder_mode_step(1)
+            actions.handle_encoder_mode_step(step)
         state.encoder_steps = 0
-    elif state.encoder_steps <= -2:
+    elif state.encoder_steps <= -state.encoder_threshold:
+        step = 1 if state.encoder_reversed else -1
         if state.encoder_mode == "navigate":
-            state.selected_index -= 1
-            if state.selected_index < 0:
-                state.selected_index = len(menus.get_menu_items(state.current_menu)) - 1
+            state.selected_index = (state.selected_index + step) % len(menus.get_menu_items(state.current_menu))
             display.draw_menu()
         else:
-            actions.handle_encoder_mode_step(-1)
+            actions.handle_encoder_mode_step(step)
         state.encoder_steps = 0
 
 
@@ -182,13 +182,12 @@ def run_action():
 
 
 def handle_touch():
-    if not touch.is_touched():
-        return
     pos = touch.read_position()
     if pos is None:
         return
     _x, y = pos
-    while touch.is_touched():
+    # wait for release
+    while touch.read_position() is not None:
         time.sleep(0.01)
     time.sleep(0.05)
 
@@ -229,6 +228,15 @@ display.show_message("Macro Pad", "Startet...")
 time.sleep(1)
 persistence.load_button_actions()
 sdcard.mount()
+display.show_message("WiFi", "Startet...")
+if wifi_server.start():
+    state.wifi_active = True
+    label = "STA" if wifi_server.mode == "sta" else wifi_server.SSID
+    display.show_message(label, wifi_server.ip())
+    time.sleep(1.5)
+else:
+    display.show_message("WiFi Fehler", "")
+    time.sleep(1.0)
 display.draw_menu()
 
 
@@ -245,4 +253,12 @@ while True:
     handle_macro_button(btn_down,     "down")
     handle_macro_button(btn_select,   "select")
     handle_macro_button(btn_favorite, "favorite")
+    wifi_server.poll()
+    if wifi_server.needs_reboot:
+        display.show_message("WiFi", "Neustart...")
+        time.sleep(1.5)
+        supervisor.reload()
+    if wifi_server.needs_redraw:
+        display.draw_menu()
+        wifi_server.needs_redraw = False
     time.sleep(0.01)

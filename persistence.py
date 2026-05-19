@@ -37,16 +37,28 @@ def load_button_actions():
                 action = saved_config.get(button_name)
                 if action in valid_actions:
                     state.button_profiles["default"][button_name] = action
+
+        state.wifi_ssid = saved_config.get("wifi_ssid", "")
+        state.wifi_password = saved_config.get("wifi_password", "")
     except (OSError, ValueError):
         pass
 
     state.button_actions = dict(state.button_profiles[state.current_profile])
 
 
+def save_wifi_config(ssid, password):
+    state.wifi_ssid = ssid
+    if password:
+        state.wifi_password = password
+    save_button_actions()
+
+
 def save_button_actions():
     serialized = json.dumps({
         "current_profile": state.current_profile,
         "profiles": state.button_profiles,
+        "wifi_ssid": state.wifi_ssid,
+        "wifi_password": state.wifi_password,
     }).encode("utf-8")
     if len(serialized) >= state.nvm_size:
         raise ValueError("button mapping too large for NVM")

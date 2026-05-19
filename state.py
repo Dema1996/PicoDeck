@@ -33,6 +33,12 @@ button_actions = dict(default_button_profiles["default"])
 current_profile = "default"
 
 encoder_mode = "navigate"
+encoder_reversed = False
+wifi_active = False
+wifi_ssid = ""
+wifi_password = ""
+encoder_threshold = 2   # half-steps per detent action (1=fast, 2=normal, 4=slow)
+brightness = 100        # display backlight 10-100 %
 current_menu = "main"
 menu_stack = []
 current_button_target = "favorite"
@@ -40,7 +46,7 @@ selected_index = 0
 
 button_assign_hold_time = 1.0
 encoder_back_hold_time = 0.6
-nvm_size = 512
+nvm_size = 1024
 
 last_encoder_time = 0.0
 encoder_steps = 0
