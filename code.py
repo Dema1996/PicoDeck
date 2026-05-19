@@ -6,6 +6,7 @@ import microcontroller
 
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
+from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from adafruit_hid.keycode import Keycode
 from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
@@ -44,6 +45,7 @@ lcd = characterlcd.Character_LCD_Mono(
 # =========================
 
 keyboard = Keyboard(usb_hid.devices)
+keyboard_layout = KeyboardLayoutUS(keyboard)
 consumer_control = ConsumerControl(usb_hid.devices)
 
 
@@ -81,7 +83,6 @@ encoder_back_hold_time = 0.6
 button_assign_hold_time = 1.0
 nvm_size = 512
 encoder_mode = "navigate"
-favorite_action = "play_pause"
 default_button_actions = {
     "back": "mission_control",
     "up": "play_pause",
@@ -268,7 +269,6 @@ menu_stack = []
 current_button_target = "favorite"
 
 selected_index = 0
-last_selected_index = -1
 
 
 # =========================
@@ -276,8 +276,6 @@ last_selected_index = -1
 # =========================
 
 def draw_menu():
-    lcd.clear()
-
     items = get_menu_items(current_menu)
     item = items[selected_index]["label"]
 
@@ -287,7 +285,7 @@ def draw_menu():
     line1 = header[:10] + " " + counter
     line2 = "> " + item
 
-    lcd.message = line1[:16] + "\n" + line2[:16]
+    lcd.message = line1[:16].ljust(16) + "\n" + line2[:16].ljust(16)
 
 
 def show_message(line1, line2=""):
@@ -454,7 +452,6 @@ def get_valid_actions():
 
 
 def load_button_actions():
-    global favorite_action
     global button_actions
     global button_profiles
     global current_profile
@@ -473,7 +470,6 @@ def load_button_actions():
         raw_config = raw_config.split(b"\x00", 1)[0]
 
         if not raw_config:
-            favorite_action = button_actions["favorite"]
             return
 
         saved_config = json.loads(raw_config.decode("utf-8"))
@@ -501,7 +497,6 @@ def load_button_actions():
         pass
 
     button_actions = dict(button_profiles[current_profile])
-    favorite_action = button_actions["favorite"]
 
 
 def save_button_actions():
@@ -518,35 +513,25 @@ def save_button_actions():
 
 
 def reset_button_actions():
-    global favorite_action
     global button_actions
 
     button_actions = dict(default_button_actions)
     button_profiles[current_profile] = dict(default_button_actions)
-    favorite_action = button_actions["favorite"]
     save_button_actions()
 
 
 def save_action_to_button(button_name, action):
-    global favorite_action
-
     button_actions[button_name] = action
     button_profiles[current_profile][button_name] = action
-
-    if button_name == "favorite":
-        favorite_action = action
-
     save_button_actions()
 
 
 def switch_profile(profile_name):
     global current_profile
     global button_actions
-    global favorite_action
 
     current_profile = profile_name
     button_actions = dict(button_profiles[current_profile])
-    favorite_action = button_actions["favorite"]
     save_button_actions()
 
 
@@ -571,6 +556,36 @@ def trigger_mapped_action(action):
 # ACTIONS
 # =========================
 
+SHORTCUT_ACTIONS = {
+    "spotlight":        (Keycode.COMMAND, Keycode.SPACE),
+    "lock_mac":         (Keycode.CONTROL, Keycode.COMMAND, Keycode.Q),
+    "screenshot":       (Keycode.COMMAND, Keycode.SHIFT, Keycode.FIVE),
+    "mission_control":  (Keycode.CONTROL, Keycode.UP_ARROW),
+    "show_desktop":     (Keycode.F11,),
+    "command_palette":  (Keycode.SHIFT, Keycode.COMMAND, Keycode.P),
+    "toggle_terminal":  (Keycode.COMMAND, Keycode.J),
+    "format_document":  (Keycode.OPTION, Keycode.SHIFT, Keycode.F),
+    "app_switcher":     (Keycode.COMMAND, Keycode.TAB),
+    "previous_app":     (Keycode.COMMAND, Keycode.SHIFT, Keycode.TAB),
+}
+
+MEDIA_ACTIONS = {
+    "play_pause":       ConsumerControlCode.PLAY_PAUSE,
+    "stop":             ConsumerControlCode.STOP,
+    "mute":             ConsumerControlCode.MUTE,
+    "next_track":       ConsumerControlCode.SCAN_NEXT_TRACK,
+    "previous_track":   ConsumerControlCode.SCAN_PREVIOUS_TRACK,
+    "volume_up":        ConsumerControlCode.VOLUME_INCREMENT,
+    "volume_down":      ConsumerControlCode.VOLUME_DECREMENT,
+}
+
+ENCODER_MODE_ACTIONS = {
+    "encoder_navigate":  "navigate",
+    "encoder_volume":    "volume",
+    "encoder_brightness": "brightness",
+}
+
+
 def send_shortcut(*keys):
     keyboard.press(*keys)
     time.sleep(0.1)
@@ -584,12 +599,10 @@ def send_media(consumer_code):
 def go_back():
     global current_menu
     global selected_index
-    global last_selected_index
 
-    if len(menu_stack) > 0:
+    if menu_stack:
         current_menu = menu_stack.pop()
         selected_index = 0
-        last_selected_index = -1
         draw_menu()
 
 
@@ -599,103 +612,16 @@ def execute_action(action):
     show_message("Action", format_action_label(action))
     time.sleep(0.2)
 
-    if action == "spotlight":
-        send_shortcut(
-            Keycode.COMMAND, 
-            Keycode.SPACE
-        )
-
-    elif action == "lock_mac":
-        send_shortcut(
-            Keycode.CONTROL,
-            Keycode.COMMAND,
-            Keycode.Q
-        )
-
-    elif action == "screenshot":
-        send_shortcut(
-            Keycode.COMMAND,
-            Keycode.SHIFT,
-            Keycode.FIVE
-        )
-    
-    elif action == "mission_control":
-        send_shortcut(
-            Keycode.CONTROL, 
-            Keycode.UP_ARROW
-        )
-
-    elif action == "show_desktop":
-        send_shortcut(Keycode.F11)
-
-    elif action == "play_pause":
-        send_media(ConsumerControlCode.PLAY_PAUSE)
-
-    elif action == "stop":
-        send_media(ConsumerControlCode.STOP)
-
-    elif action == "mute":
-        send_media(ConsumerControlCode.MUTE)
-
-    elif action == "next_track":
-        send_media(ConsumerControlCode.SCAN_NEXT_TRACK)
-
-    elif action == "previous_track":
-        send_media(ConsumerControlCode.SCAN_PREVIOUS_TRACK)
-
-    elif action == "volume_up":
-        send_media(ConsumerControlCode.VOLUME_INCREMENT)
-
-    elif action == "volume_down":
-        send_media(ConsumerControlCode.VOLUME_DECREMENT)
-
+    if action in SHORTCUT_ACTIONS:
+        send_shortcut(*SHORTCUT_ACTIONS[action])
     elif action == "open_vscode":
-        send_shortcut(
-            Keycode.COMMAND, 
-            Keycode.SPACE
-        )
-
-    elif action == "command_palette":
-        send_shortcut(
-            Keycode.SHIFT,
-            Keycode.COMMAND,
-            Keycode.P
-        )
-
-    elif action == "toggle_terminal":
-        send_shortcut(
-            Keycode.COMMAND,
-            Keycode.J
-        )
-
-    elif action == "format_document":
-        send_shortcut(
-            Keycode.OPTION,
-            Keycode.SHIFT,
-            Keycode.F
-        )
-
-    elif action == "app_switcher":
-        send_shortcut(
-            Keycode.COMMAND,
-            Keycode.TAB
-        )
-
-    elif action == "previous_app":
-        send_shortcut(
-            Keycode.COMMAND,
-            Keycode.SHIFT,
-            Keycode.TAB
-        )
-
-    elif action == "encoder_navigate":
-        encoder_mode = "navigate"
-
-    elif action == "encoder_volume":
-        encoder_mode = "volume"
-
-    elif action == "encoder_brightness":
-        encoder_mode = "brightness"
+        send_shortcut(Keycode.COMMAND, Keycode.SPACE)
+        time.sleep(0.5)
+        keyboard_layout.write("code\n")
+    elif action in MEDIA_ACTIONS:
+        send_media(MEDIA_ACTIONS[action])
+    elif action in ENCODER_MODE_ACTIONS:
+        encoder_mode = ENCODER_MODE_ACTIONS[action]
 
     time.sleep(0.3)
     draw_menu()
@@ -777,7 +703,6 @@ def run_action():
 
     global current_menu
     global selected_index
-    global last_selected_index
     global current_button_target
 
     item = get_menu_items(current_menu)[selected_index]
@@ -790,7 +715,6 @@ def run_action():
         current_menu = item["submenu"]
 
         selected_index = 0
-        last_selected_index = -1
 
         draw_menu()
 
@@ -806,7 +730,6 @@ def run_action():
             menu_stack.append(current_menu)
             current_menu = "button_detail"
             selected_index = 0
-            last_selected_index = -1
             draw_menu()
             return
 
