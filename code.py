@@ -6,7 +6,6 @@ import microcontroller
 
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
-from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from adafruit_hid.keycode import Keycode
 from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
@@ -45,7 +44,6 @@ lcd = characterlcd.Character_LCD_Mono(
 # =========================
 
 keyboard = Keyboard(usb_hid.devices)
-keyboard_layout = KeyboardLayoutUS(keyboard)
 consumer_control = ConsumerControl(usb_hid.devices)
 
 
@@ -567,6 +565,7 @@ SHORTCUT_ACTIONS = {
     "format_document":  (Keycode.OPTION, Keycode.SHIFT, Keycode.F),
     "app_switcher":     (Keycode.COMMAND, Keycode.TAB),
     "previous_app":     (Keycode.COMMAND, Keycode.SHIFT, Keycode.TAB),
+    "open_vscode":      (Keycode.COMMAND, Keycode.SPACE),
 }
 
 MEDIA_ACTIONS = {
@@ -614,10 +613,6 @@ def execute_action(action):
 
     if action in SHORTCUT_ACTIONS:
         send_shortcut(*SHORTCUT_ACTIONS[action])
-    elif action == "open_vscode":
-        send_shortcut(Keycode.COMMAND, Keycode.SPACE)
-        time.sleep(0.5)
-        keyboard_layout.write("code\n")
     elif action in MEDIA_ACTIONS:
         send_media(MEDIA_ACTIONS[action])
     elif action in ENCODER_MODE_ACTIONS:
