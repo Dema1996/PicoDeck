@@ -4,6 +4,7 @@ import board
 import digitalio
 import microcontroller
 import supervisor
+import usb_cdc
 
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
@@ -274,13 +275,22 @@ selected_index = 0
 # DISPLAY FUNCTIONS
 # =========================
 
+def _pad16(s):
+    s = s[:16]
+    return s + " " * (16 - len(s))
+
+
 def _print_lcd(line1, line2):
     if not supervisor.runtime.serial_connected:
         return
-    print("+----------------+")
-    print("|" + line1[:16].ljust(16) + "|")
-    print("|" + line2[:16].ljust(16) + "|")
-    print("+----------------+")
+    try:
+        msg = ("+----------------+\r\n"
+               "|" + _pad16(line1) + "|\r\n"
+               "|" + _pad16(line2) + "|\r\n"
+               "+----------------+\r\n")
+        usb_cdc.console.write(msg.encode())
+    except OSError:
+        pass
 
 
 def draw_menu():
