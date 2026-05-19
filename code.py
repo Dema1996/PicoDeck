@@ -1,6 +1,8 @@
 import time
+import json
 import board
 import digitalio
+import microcontroller
 
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
@@ -77,14 +79,24 @@ last_encoder_button_state = encoder_sw.value
 encoder_button_pressed_at = 0
 encoder_back_hold_time = 0.6
 button_assign_hold_time = 1.0
+nvm_size = 512
 favorite_action = "play_pause"
-button_actions = {
+default_button_actions = {
     "back": "mission_control",
     "up": "play_pause",
     "down": "previous_track",
     "select": "volume_down",
     "favorite": "play_pause"
 }
+button_actions = dict(default_button_actions)
+button_pins = {
+    "back": "GP8",
+    "up": "GP9",
+    "down": "GP10",
+    "select": "GP11",
+    "favorite": "GP16"
+}
+button_order = ["back", "up", "down", "select", "favorite"]
 
 
 # =========================
@@ -105,6 +117,10 @@ menus = {
         {
             "label": "Coding",
             "submenu": "coding"
+        },
+        {
+            "label": "Buttons",
+            "submenu": "buttons"
         }
     ],
 
@@ -184,7 +200,7 @@ last_selected_index = -1
 def draw_menu():
     lcd.clear()
 
-    items = menus[current_menu]
+    items = get_menu_items(current_menu)
     item = items[selected_index]["label"]
 
     header = current_menu.upper()
@@ -199,6 +215,111 @@ def draw_menu():
 def show_message(line1, line2=""):
     lcd.clear()
     lcd.message = line1[:16] + "\n" + line2[:16]
+
+
+def format_action_label(action):
+    labels = {
+        "mission_control": "MissionCtrl",
+        "play_pause": "PlayPause",
+        "previous_track": "Prev Track",
+        "next_track": "Next Track",
+        "volume_up": "Volume Up",
+        "volume_down": "Volume Dn",
+        "spotlight": "Spotlight",
+        "lock_mac": "Lock Mac",
+        "show_desktop": "Desktop",
+        "open_vscode": "VSCode",
+        "screenshot": "Screenshot"
+    }
+    return labels.get(action, action[:10])
+
+
+def get_buttons_menu():
+    items = []
+
+    for button_name in button_order:
+        items.append({
+            "label": button_pins[button_name],
+            "action": "show_button_mapping",
+            "button_name": button_name
+        })
+
+    items.append({
+        "label": "Reset Default",
+        "action": "reset_button_defaults"
+    })
+    items.append({
+        "label": "Zurueck",
+        "action": "back"
+    })
+
+    return items
+
+
+def get_menu_items(menu_name):
+    if menu_name == "buttons":
+        return get_buttons_menu()
+
+    return menus[menu_name]
+
+
+def get_valid_actions():
+    actions = set()
+
+    for items in menus.values():
+        for item in items:
+            action = item.get("action")
+            if action and action != "back":
+                actions.add(action)
+
+    return actions
+
+
+def load_button_actions():
+    global favorite_action
+    global button_actions
+
+    valid_actions = get_valid_actions()
+    button_actions = dict(default_button_actions)
+
+    try:
+        raw_config = bytes(microcontroller.nvm[:nvm_size])
+        raw_config = raw_config.split(b"\x00", 1)[0]
+
+        if not raw_config:
+            favorite_action = button_actions["favorite"]
+            return
+
+        saved_actions = json.loads(raw_config.decode("utf-8"))
+
+        for button_name in default_button_actions:
+            action = saved_actions.get(button_name)
+            if action in valid_actions:
+                button_actions[button_name] = action
+
+    except (OSError, ValueError):
+        pass
+
+    favorite_action = button_actions["favorite"]
+
+
+def save_button_actions():
+    serialized = json.dumps(button_actions).encode("utf-8")
+
+    if len(serialized) >= nvm_size:
+        raise ValueError("button mapping too large for NVM")
+
+    padded = serialized + b"\x00" * (nvm_size - len(serialized))
+    microcontroller.nvm[:nvm_size] = padded
+
+
+def reset_button_actions():
+    global favorite_action
+    global button_actions
+
+    button_actions = dict(default_button_actions)
+    favorite_action = button_actions["favorite"]
+    save_button_actions()
 
 
 # =========================
@@ -287,7 +408,7 @@ def execute_action(action):
 
 def assign_current_action_to_button(button_name):
     global favorite_action
-    item = menus[current_menu][selected_index]
+    item = get_menu_items(current_menu)[selected_index]
 
     if "action" not in item:
         show_message("Kein Mapping", "Nur Makros")
@@ -308,8 +429,25 @@ def assign_current_action_to_button(button_name):
     if button_name == "favorite":
         favorite_action = action
 
+    try:
+        save_button_actions()
+    except (OSError, ValueError):
+        show_message("Speichern fehlg", "Mapping aktiv")
+        time.sleep(0.8)
+        draw_menu()
+        return
+
     show_message("Gemappt auf", button_name.upper())
     time.sleep(0.8)
+    draw_menu()
+
+
+def show_button_mapping(button_name):
+    show_message(
+        button_pins[button_name],
+        format_action_label(button_actions[button_name])
+    )
+    time.sleep(1.0)
     draw_menu()
 
 
@@ -329,7 +467,7 @@ def run_action():
     global selected_index
     global last_selected_index
 
-    item = menus[current_menu][selected_index]
+    item = get_menu_items(current_menu)[selected_index]
 
     # Untermenue oeffnen
     if "submenu" in item:
@@ -349,6 +487,24 @@ def run_action():
     if "action" in item:
 
         action = item["action"]
+
+        if action == "show_button_mapping":
+            show_button_mapping(item["button_name"])
+            return
+
+        if action == "reset_button_defaults":
+            try:
+                reset_button_actions()
+            except (OSError, ValueError):
+                show_message("Reset fehlg", "Bitte reboot")
+                time.sleep(0.8)
+                draw_menu()
+                return
+
+            show_message("Buttons reset", "Defaults aktiv")
+            time.sleep(0.8)
+            draw_menu()
+            return
 
         # Zurueck ueber Encoder-Auswahl
         if action == "back":
@@ -404,7 +560,7 @@ def handle_encoder():
     # viele Encoder liefern 4 Teilschritte pro Rastung
     if encoder_steps >= 2:
         selected_index += 1
-        if selected_index >= len(menus[current_menu]):
+        if selected_index >= len(get_menu_items(current_menu)):
             selected_index = 0
 
         encoder_steps = 0
@@ -413,7 +569,7 @@ def handle_encoder():
     elif encoder_steps <= -2:
         selected_index -= 1
         if selected_index < 0:
-            selected_index = len(menus[current_menu]) - 1
+            selected_index = len(get_menu_items(current_menu)) - 1
 
         encoder_steps = 0
         draw_menu()
@@ -466,6 +622,7 @@ def handle_macro_button(button, button_name):
 show_message("Macro Pad", "Startet...")
 time.sleep(1)
 
+load_button_actions()
 draw_menu()
 
 
