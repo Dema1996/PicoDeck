@@ -13,8 +13,8 @@ import menus
 
 displayio.release_displays()
 
-_spi = busio.SPI(clock=board.GP2, MOSI=board.GP3, MISO=board.GP4)
-_bus = displayio.FourWire(_spi, command=board.GP6, chip_select=board.GP5, reset=board.GP7)
+spi = busio.SPI(clock=board.GP2, MOSI=board.GP3, MISO=board.GP4)
+_bus = displayio.FourWire(spi, command=board.GP6, chip_select=board.GP5, reset=board.GP7)
 tft = ILI9341(_bus, width=320, height=240)
 
 _backlight = digitalio.DigitalInOut(board.GP15)
@@ -160,3 +160,15 @@ def go_back():
         state.current_menu = state.menu_stack.pop()
         state.selected_index = 0
         draw_menu()
+
+
+def item_at_y(y):
+    """Returns the menu item index at screen y, or None if in the header area."""
+    if y < _HDR:
+        return None
+    row = (y - _HDR) // _IH
+    if row >= _VIS:
+        return None
+    items = menus.get_menu_items(state.current_menu)
+    idx = _scroll_offset(len(items)) + row
+    return idx if idx < len(items) else None

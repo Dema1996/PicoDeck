@@ -7,6 +7,8 @@ import menus
 import display
 import actions
 import persistence
+import touch
+import sdcard
 
 
 # =========================
@@ -179,6 +181,28 @@ def run_action():
     actions.execute_action(action)
 
 
+def handle_touch():
+    if not touch.is_touched():
+        return
+    pos = touch.read_position()
+    if pos is None:
+        return
+    _x, y = pos
+    while touch.is_touched():
+        time.sleep(0.01)
+    time.sleep(0.05)
+
+    if y < display._HDR:
+        display.go_back()
+        return
+    idx = display.item_at_y(y)
+    if idx is not None:
+        state.selected_index = idx
+        display.draw_menu()
+        time.sleep(0.08)
+        run_action()
+
+
 def handle_macro_button(button, button_name):
     s = state.button_hold_state[button_name]
     pressed = is_pressed(button)
@@ -204,6 +228,7 @@ def handle_macro_button(button, button_name):
 display.show_message("Macro Pad", "Startet...")
 time.sleep(1)
 persistence.load_button_actions()
+sdcard.mount()
 display.draw_menu()
 
 
@@ -214,6 +239,7 @@ display.draw_menu()
 while True:
     handle_encoder()
     handle_encoder_button()
+    handle_touch()
     handle_macro_button(btn_back,     "back")
     handle_macro_button(btn_up,       "up")
     handle_macro_button(btn_down,     "down")

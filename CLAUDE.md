@@ -74,8 +74,9 @@ Each profile (`default`, `coding`, `media`) has its own factory defaults in `def
 | Encoder CLK / DT / SW | GP12 / GP13 / GP14 |
 | TFT LED (backlight) | GP15 |
 | btn_favorite | GP16 |
-| Touch CS / IRQ (optional) | GP17 / GP18 |
+| Touch CS / IRQ | GP17 / GP18 |
+| SD CS | GP22 |
 
 Buttons use `INPUT_PULLUP`; pressed = `LOW`.
 
-Display: AZDelivery 2.4" ILI9341 SPI (320×240). SPI0 hardware bus on GP2–GP4.
+Display: AZDelivery 2.4" ILI9341 SPI (320×240, landscape). All SPI devices share SPI0 on GP2–GP4 with separate CS pins. Touch calibration constants are at the top of `touch.py` (`_X_MIN/_X_MAX/_Y_MIN/_Y_MAX`).
