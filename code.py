@@ -76,9 +76,8 @@ encoder_steps = 0
 last_encoder_button_state = encoder_sw.value
 encoder_button_pressed_at = 0
 encoder_back_hold_time = 0.6
-encoder_assign_hold_time = 1.2
+button_assign_hold_time = 1.0
 favorite_action = "play_pause"
-pending_button_assignment = None
 button_actions = {
     "back": "mission_control",
     "up": "play_pause",
@@ -286,9 +285,8 @@ def execute_action(action):
     draw_menu()
 
 
-def start_button_assignment():
-    global pending_button_assignment
-
+def assign_current_action_to_button(button_name):
+    global favorite_action
     item = menus[current_menu][selected_index]
 
     if "action" not in item:
@@ -305,22 +303,11 @@ def start_button_assignment():
         draw_menu()
         return
 
-    pending_button_assignment = action
-    show_message("Button waehlen", item["label"])
-    time.sleep(0.2)
-
-
-def assign_action_to_button(button_name):
-    global favorite_action
-    global pending_button_assignment
-
-    action = pending_button_assignment
     button_actions[button_name] = action
 
     if button_name == "favorite":
         favorite_action = action
 
-    pending_button_assignment = None
     show_message("Gemappt auf", button_name.upper())
     time.sleep(0.8)
     draw_menu()
@@ -444,9 +431,7 @@ def handle_encoder_button():
     elif current_state and not last_encoder_button_state:
         press_duration = now - encoder_button_pressed_at
 
-        if press_duration >= encoder_assign_hold_time:
-            start_button_assignment()
-        elif press_duration >= encoder_back_hold_time:
+        if press_duration >= encoder_back_hold_time:
             go_back()
         else:
             run_action()
@@ -460,12 +445,18 @@ def handle_macro_button(button, button_name):
     if not is_pressed(button):
         return
 
-    if pending_button_assignment is not None:
-        assign_action_to_button(button_name)
-    else:
-        trigger_button_action(button_name)
+    pressed_at = time.monotonic()
 
-    wait_until_released(button)
+    while is_pressed(button):
+        if time.monotonic() - pressed_at >= button_assign_hold_time:
+            assign_current_action_to_button(button_name)
+            wait_until_released(button)
+            time.sleep(0.15)
+            return
+
+        time.sleep(0.01)
+
+    trigger_button_action(button_name)
     time.sleep(0.15)
 
 # =========================
