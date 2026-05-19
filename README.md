@@ -1,222 +1,137 @@
 # PicoDeck
 
-DIY Macro Deck auf Basis eines Raspberry Pi Pico 2 W.
+DIY-Macro-Deck auf Basis eines Raspberry Pi Pico 2 W mit 16x2-LCD, Buttons, Rotary Encoder und USB-HID fuer macOS-orientierte Shortcuts.
 
-## Features
+## Status
 
-- LCD 1602A im 4-Bit-Modus
-- USB HID für macOS
-- 4 Navigationstasten
-- Rotary Encoder
-- Menüsystem auf LCD
-- Erweiterbar für RGB, OLED, WLAN und Bluetooth
+Die Firmware laeuft direkt aus `code.py` und bietet aktuell:
 
----
+- Menues fuer `Media`, `System`, `Coding`, `Encoder`, `Buttons` und `Profiles`
+- frei belegbare Hardware-Buttons auf `GP8`, `GP9`, `GP10`, `GP11`, `GP16`
+- persistente Button-Mappings in `microcontroller.nvm`
+- mehrere Profile mit eigenen Button-Belegungen
+- Encoder-Modi fuer Navigation, Lautstaerke und Bildschirmhelligkeit
 
-# Hardware
-
-## Verwendete Komponenten
-
-- Raspberry Pi Pico 2 W
-- LCD 1602A
-- 4 Buttons
-- Rotary Encoder (KY-040 kompatibel)
-- Breadboard
-- Jumper Kabel
-
----
-
-# Pinbelegung
-
-## LCD 1602A (4-Bit-Modus)
-
-| LCD Signal | Pico Pin |
-|---|---|
-| RS | GP2 |
-| E | GP3 |
-| D4 | GP4 |
-| D5 | GP5 |
-| D6 | GP6 |
-| D7 | GP7 |
-
-## LCD Stromversorgung
-
-| LCD Pin | Verbindung |
-|---|---|
-| VSS | GND |
-| VDD | 5V oder VBUS |
-| VO | Potentiometer Mitte |
-| A | 5V über Widerstand |
-| K | GND |
-
----
-
-## Buttons
-
-Alle Buttons verwenden:
-
-```text
-INPUT_PULLUP
-```
-
-Logik:
-
-```text
-gedrückt = LOW (0)
-nicht gedrückt = HIGH (1)
-```
-
-| Funktion | Pico Pin |
-|---|---|
-| Back | GP8 |
-| Up | GP9 |
-| Down | GP10 |
-| Select | GP11 |
-
-Verdrahtung:
-
-```text
-GPIO ↔ Button ↔ GND
-```
-
----
-
-## Rotary Encoder
-
-| Encoder Pin | Pico Pin |
-|---|---|
-| CLK | GP12 |
-| DT | GP13 |
-| SW | GP14 |
-| + | 3V3 |
-| GND | GND |
-
-### Funktionen
-
-| Aktion | Funktion |
-|---|---|
-| Drehen | Menü Navigation |
-| Drücken | Aktion ausführen |
-
----
-
-# USB
-
-| Verbindung | Zweck |
-|---|---|
-| USB → MacBook | Strom + USB-HID |
-
----
-
-# GPIO Übersicht
-
-| GPIO | Funktion |
-|---|---|
-| GP2 | LCD RS |
-| GP3 | LCD E |
-| GP4 | LCD D4 |
-| GP5 | LCD D5 |
-| GP6 | LCD D6 |
-| GP7 | LCD D7 |
-| GP8 | Button Back |
-| GP9 | Button Up |
-| GP10 | Button Down |
-| GP11 | Button Select |
-| GP12 | Encoder CLK |
-| GP13 | Encoder DT |
-| GP14 | Encoder SW |
-
----
-
-# Projektstruktur
+## Projektstruktur
 
 ```text
 PicoDeck/
+├── code.py
+├── lib/
+│   ├── adafruit_character_lcd/
+│   └── adafruit_hid/
+├── sd/
+├── settings.toml
 ├── README.md
-├── src/
-│   └── code.py
-├── docs/
-│   └── wiring.md
-└── hardware/
+└── AGENTS.md
 ```
 
----
+## Hardware
 
-# Architektur
+- Raspberry Pi Pico 2 W
+- LCD 1602A im 4-Bit-Modus
+- 5 Taster mit `INPUT_PULLUP`
+- Rotary Encoder mit Push-Button, z. B. KY-040
 
-```text
-Buttons / Encoder
-        ↓
-Menu System
-        ↓
-LCD Rendering
-        ↓
-Action Engine
-        ↓
-USB HID
-        ↓
-macOS
-```
+### Pinbelegung
 
----
+| Funktion | Pico Pin |
+|---|---|
+| LCD RS / E | GP2 / GP3 |
+| LCD D4-D7 | GP4-GP7 |
+| Button 1-4 | GP8-GP11 |
+| Encoder CLK / DT / SW | GP12 / GP13 / GP14 |
+| Zusatz-Button | GP16 |
 
-# Geplante Features
+Button-Logik: gedrueckt = `LOW`, nicht gedrueckt = `HIGH`.
 
-- Untermenüs
-- Lautstärke-Steuerung
-- Spotify Integration
-- App-spezifische Profile
-- OLED Support
-- RGB LEDs
-- WLAN API
-- Bluetooth HID
+## Bedienung
 
----
+### Encoder
 
-# Setup
+- drehen im Modus `Navigate`: Menue-Navigation
+- kurzer Druck im Modus `Navigate`: Menuepunkt ausfuehren
+- langer Druck im Modus `Navigate`: `Zurueck`
+- Modus `Volume`: drehen aendert Lautstaerke
+- Modus `Brightness`: drehen aendert Bildschirmhelligkeit
+- langer Druck in `Volume` oder `Brightness`: zurueck auf `Navigate`
 
-## CircuitPython installieren
+### Hardware-Buttons
 
-Download:
+- kurzer Druck: aktuell gemappte Aktion ausfuehren
+- langer Druck auf einem Menue-Makro: dieses Makro auf genau diesen Button mappen
 
-https://circuitpython.org/board/raspberry_pi_pico2_w/
+### Buttons-Menue
 
-UF2-Datei auf den Pico kopieren.
+- zeigt die aktuelle Belegung jeder Taste direkt in der Liste
+- Detailansicht pro Taste zum direkten Remappen
+- `Reset Taste` fuer einzelne Taste
+- `Reset Default` fuer das ganze aktuelle Profil
 
----
+### Profiles-Menue
 
-## Benötigte Libraries
+- `Default`
+- `Coding`
+- `Media`
 
-Nach `CIRCUITPY/lib/` kopieren:
+Jedes Profil hat eigene persistente Button-Belegungen.
 
-```text
-adafruit_character_lcd
-adafruit_hid
-```
+## Aktuelle Aktionen
 
-Library Bundle:
+### Media
 
-https://circuitpython.org/libraries
+- `play_pause`
+- `stop`
+- `mute`
+- `previous_track`
+- `next_track`
+- `volume_up`
+- `volume_down`
 
----
+### System
 
-# Start
+- `spotlight`
+- `app_switcher`
+- `previous_app`
+- `mission_control`
+- `lock_mac`
+- `show_desktop`
 
-Datei:
+### Coding
 
-```text
-code.py
-```
+- `open_vscode`
+- `command_palette`
+- `toggle_terminal`
+- `format_document`
+- `screenshot`
 
-nach:
+## Persistenz
 
-```text
-CIRCUITPY/
-```
+Button-Mappings werden nicht im CIRCUITPY-Dateisystem gespeichert, sondern in `microcontroller.nvm`. Dadurch bleiben die Belegungen ueber Reboots erhalten, ohne Schreibprobleme auf dem USB-Massenspeicher zu verursachen.
 
-kopieren.
+## Setup
 
-Der Pico startet automatisch neu.
+1. CircuitPython fuer `raspberry_pi_pico2_w` installieren:
+   https://circuitpython.org/board/raspberry_pi_pico2_w/
+2. `code.py` nach `CIRCUITPY/` kopieren.
+3. Den Ordner `lib/` nach `CIRCUITPY/lib/` kopieren.
+4. Optional Konfiguration in `settings.toml` ablegen.
+
+Der Pico startet nach dem Kopieren automatisch neu.
+
+## Entwicklung
+
+- Serielle Konsole: `screen /dev/tty.usbmodem* 115200`
+- Deployment: `cp code.py /Volumes/CIRCUITPY/code.py`
+- Bibliotheken bleiben vendorisiert unter `lib/`
+- Der aktuelle Stand wird bewusst noch in einer Datei gehalten; mittelfristig lohnt sich eine Aufteilung in Module
+
+## Naechste sinnvolle Schritte
+
+- mehr robuste Coding-Makros
+- host-spezifische Shortcut-Profile
+- Menue-/Action-Logik in Module aufteilen
+- manuelle Hardware-Testmatrix dokumentieren
 
 ---
 

@@ -80,6 +80,7 @@ encoder_button_pressed_at = 0
 encoder_back_hold_time = 0.6
 button_assign_hold_time = 1.0
 nvm_size = 512
+encoder_mode = "navigate"
 favorite_action = "play_pause"
 default_button_actions = {
     "back": "mission_control",
@@ -97,6 +98,23 @@ button_pins = {
     "favorite": "GP16"
 }
 button_order = ["back", "up", "down", "select", "favorite"]
+profile_order = ["default", "coding", "media"]
+profile_labels = {
+    "default": "Default",
+    "coding": "Coding",
+    "media": "Media"
+}
+default_button_profiles = {
+    "default": dict(default_button_actions),
+    "coding": dict(default_button_actions),
+    "media": dict(default_button_actions)
+}
+button_profiles = {
+    "default": dict(default_button_actions),
+    "coding": dict(default_button_actions),
+    "media": dict(default_button_actions)
+}
+current_profile = "default"
 
 
 # =========================
@@ -119,8 +137,16 @@ menus = {
             "submenu": "coding"
         },
         {
+            "label": "Encoder",
+            "submenu": "encoder"
+        },
+        {
             "label": "Buttons",
             "submenu": "buttons"
+        },
+        {
+            "label": "Profiles",
+            "submenu": "profiles"
         }
     ],
 
@@ -196,8 +222,39 @@ menus = {
             "action": "open_vscode"
         },
         {
+            "label": "Command Pal",
+            "action": "command_palette"
+        },
+        {
+            "label": "Terminal",
+            "action": "toggle_terminal"
+        },
+        {
+            "label": "Format Doc",
+            "action": "format_document"
+        },
+        {
             "label": "Screenshot",
             "action": "screenshot"
+        },
+        {
+            "label": "Zurueck",
+            "action": "back"
+        }
+    ],
+
+    "encoder": [
+        {
+            "label": "Navigate",
+            "action": "encoder_navigate"
+        },
+        {
+            "label": "Volume",
+            "action": "encoder_volume"
+        },
+        {
+            "label": "Brightness",
+            "action": "encoder_brightness"
         },
         {
             "label": "Zurueck",
@@ -224,7 +281,7 @@ def draw_menu():
     items = get_menu_items(current_menu)
     item = items[selected_index]["label"]
 
-    header = current_menu.upper()
+    header = get_menu_header(current_menu)
     counter = str(selected_index + 1) + "/" + str(len(items))
 
     line1 = header[:10] + " " + counter
@@ -236,6 +293,27 @@ def draw_menu():
 def show_message(line1, line2=""):
     lcd.clear()
     lcd.message = line1[:16] + "\n" + line2[:16]
+
+
+def get_menu_header(menu_name):
+    profile_short = profile_labels[current_profile][:3].upper()
+    encoder_short = {
+        "navigate": "NAV",
+        "volume": "VOL",
+        "brightness": "BRT"
+    }[encoder_mode]
+
+    headers = {
+        "main": "M " + profile_short + " " + encoder_short,
+        "media": "MEDIA " + encoder_short,
+        "system": "SYSTEM " + encoder_short,
+        "coding": "CODING " + encoder_short,
+        "encoder": "ENC " + profile_short,
+        "buttons": "BTN " + profile_labels[current_profile][:6].upper(),
+        "button_detail": button_pins[current_button_target],
+        "profiles": "PROF " + encoder_short
+    }
+    return headers.get(menu_name, menu_name.upper())
 
 
 def format_action_label(action):
@@ -254,9 +332,27 @@ def format_action_label(action):
         "lock_mac": "Lock Mac",
         "show_desktop": "Desktop",
         "open_vscode": "VSCode",
-        "screenshot": "Screenshot"
+        "command_palette": "CmdPalette",
+        "toggle_terminal": "Terminal",
+        "format_document": "Format Doc",
+        "screenshot": "Screenshot",
+        "encoder_navigate": "Enc Nav",
+        "encoder_volume": "Enc Vol",
+        "encoder_brightness": "Enc Bright"
     }
+    if action.startswith("profile:"):
+        profile_name = action.split(":", 1)[1]
+        return "Prof " + profile_labels.get(profile_name, profile_name[:6])
     return labels.get(action, action[:10])
+
+
+def get_assignment_target(item):
+    action = item.get("action")
+
+    if action == "switch_profile":
+        return "profile:" + item["profile_name"]
+
+    return action
 
 
 def get_buttons_menu():
@@ -264,7 +360,7 @@ def get_buttons_menu():
 
     for button_name in button_order:
         items.append({
-            "label": button_pins[button_name],
+            "label": button_pins[button_name] + " " + format_action_label(button_actions[button_name]),
             "action": "open_button_detail",
             "button_name": button_name
         })
@@ -281,11 +377,35 @@ def get_buttons_menu():
     return items
 
 
+def get_profiles_menu():
+    items = []
+
+    for profile_name in profile_order:
+        label = profile_labels[profile_name]
+        if profile_name == current_profile:
+            label = "* " + label
+
+        items.append({
+            "label": label,
+            "action": "switch_profile",
+            "profile_name": profile_name
+        })
+
+    items.append({
+        "label": "Zurueck",
+        "action": "back"
+    })
+
+    return items
+
+
 def get_menu_items(menu_name):
     if menu_name == "buttons":
         return get_buttons_menu()
     if menu_name == "button_detail":
         return get_button_detail_menu()
+    if menu_name == "profiles":
+        return get_profiles_menu()
 
     return menus[menu_name]
 
@@ -327,15 +447,26 @@ def get_valid_actions():
             if action and action != "back":
                 actions.add(action)
 
+    for profile_name in profile_order:
+        actions.add("profile:" + profile_name)
+
     return actions
 
 
 def load_button_actions():
     global favorite_action
     global button_actions
+    global button_profiles
+    global current_profile
 
     valid_actions = get_valid_actions()
     button_actions = dict(default_button_actions)
+    button_profiles = {
+        "default": dict(default_button_actions),
+        "coding": dict(default_button_actions),
+        "media": dict(default_button_actions)
+    }
+    current_profile = "default"
 
     try:
         raw_config = bytes(microcontroller.nvm[:nvm_size])
@@ -345,21 +476,39 @@ def load_button_actions():
             favorite_action = button_actions["favorite"]
             return
 
-        saved_actions = json.loads(raw_config.decode("utf-8"))
+        saved_config = json.loads(raw_config.decode("utf-8"))
 
-        for button_name in default_button_actions:
-            action = saved_actions.get(button_name)
-            if action in valid_actions:
-                button_actions[button_name] = action
+        if "profiles" in saved_config:
+            saved_profiles = saved_config.get("profiles", {})
+
+            for profile_name in profile_order:
+                saved_actions = saved_profiles.get(profile_name, {})
+                for button_name in default_button_actions:
+                    action = saved_actions.get(button_name)
+                    if action in valid_actions:
+                        button_profiles[profile_name][button_name] = action
+
+            saved_profile = saved_config.get("current_profile")
+            if saved_profile in profile_order:
+                current_profile = saved_profile
+        else:
+            for button_name in default_button_actions:
+                action = saved_config.get(button_name)
+                if action in valid_actions:
+                    button_profiles["default"][button_name] = action
 
     except (OSError, ValueError):
         pass
 
+    button_actions = dict(button_profiles[current_profile])
     favorite_action = button_actions["favorite"]
 
 
 def save_button_actions():
-    serialized = json.dumps(button_actions).encode("utf-8")
+    serialized = json.dumps({
+        "current_profile": current_profile,
+        "profiles": button_profiles
+    }).encode("utf-8")
 
     if len(serialized) >= nvm_size:
         raise ValueError("button mapping too large for NVM")
@@ -373,6 +522,7 @@ def reset_button_actions():
     global button_actions
 
     button_actions = dict(default_button_actions)
+    button_profiles[current_profile] = dict(default_button_actions)
     favorite_action = button_actions["favorite"]
     save_button_actions()
 
@@ -381,11 +531,40 @@ def save_action_to_button(button_name, action):
     global favorite_action
 
     button_actions[button_name] = action
+    button_profiles[current_profile][button_name] = action
 
     if button_name == "favorite":
         favorite_action = action
 
     save_button_actions()
+
+
+def switch_profile(profile_name):
+    global current_profile
+    global button_actions
+    global favorite_action
+
+    current_profile = profile_name
+    button_actions = dict(button_profiles[current_profile])
+    favorite_action = button_actions["favorite"]
+    save_button_actions()
+
+
+def trigger_mapped_action(action):
+    if action == "back":
+        go_back()
+        return
+
+    if action.startswith("profile:"):
+        profile_name = action.split(":", 1)[1]
+        if profile_name in profile_order:
+            switch_profile(profile_name)
+            show_message("Profil aktiv", profile_labels[profile_name])
+            time.sleep(0.8)
+            draw_menu()
+        return
+
+    execute_action(action)
 
 
 # =========================
@@ -415,7 +594,9 @@ def go_back():
 
 
 def execute_action(action):
-    show_message("Action", action)
+    global encoder_mode
+
+    show_message("Action", format_action_label(action))
     time.sleep(0.2)
 
     if action == "spotlight":
@@ -474,6 +655,26 @@ def execute_action(action):
             Keycode.SPACE
         )
 
+    elif action == "command_palette":
+        send_shortcut(
+            Keycode.SHIFT,
+            Keycode.COMMAND,
+            Keycode.P
+        )
+
+    elif action == "toggle_terminal":
+        send_shortcut(
+            Keycode.COMMAND,
+            Keycode.J
+        )
+
+    elif action == "format_document":
+        send_shortcut(
+            Keycode.OPTION,
+            Keycode.SHIFT,
+            Keycode.F
+        )
+
     elif action == "app_switcher":
         send_shortcut(
             Keycode.COMMAND,
@@ -487,8 +688,31 @@ def execute_action(action):
             Keycode.TAB
         )
 
+    elif action == "encoder_navigate":
+        encoder_mode = "navigate"
+
+    elif action == "encoder_volume":
+        encoder_mode = "volume"
+
+    elif action == "encoder_brightness":
+        encoder_mode = "brightness"
+
     time.sleep(0.3)
     draw_menu()
+
+
+def handle_encoder_mode_step(step):
+    if encoder_mode == "volume":
+        if step > 0:
+            send_media(ConsumerControlCode.VOLUME_INCREMENT)
+        else:
+            send_media(ConsumerControlCode.VOLUME_DECREMENT)
+
+    elif encoder_mode == "brightness":
+        if step > 0:
+            send_media(ConsumerControlCode.BRIGHTNESS_INCREMENT)
+        else:
+            send_media(ConsumerControlCode.BRIGHTNESS_DECREMENT)
 
 
 def assign_current_action_to_button(button_name):
@@ -500,7 +724,7 @@ def assign_current_action_to_button(button_name):
         draw_menu()
         return
 
-    action = item["action"]
+    action = get_assignment_target(item)
 
     if action == "back":
         show_message("Kein Mapping", "Nicht Zurueck")
@@ -546,12 +770,7 @@ def reset_single_button(button_name):
 
 def trigger_button_action(button_name):
     action = button_actions[button_name]
-
-    if action == "back":
-        go_back()
-        return
-
-    execute_action(action)
+    trigger_mapped_action(action)
 
 
 def run_action():
@@ -588,6 +807,20 @@ def run_action():
             current_menu = "button_detail"
             selected_index = 0
             last_selected_index = -1
+            draw_menu()
+            return
+
+        if action == "switch_profile":
+            try:
+                switch_profile(item["profile_name"])
+            except (OSError, ValueError):
+                show_message("Profil fehlg", "Bitte reboot")
+                time.sleep(0.8)
+                draw_menu()
+                return
+
+            show_message("Profil aktiv", profile_labels[item["profile_name"]])
+            time.sleep(0.8)
             draw_menu()
             return
 
@@ -683,24 +916,33 @@ def handle_encoder():
 
     # viele Encoder liefern 4 Teilschritte pro Rastung
     if encoder_steps >= 2:
-        selected_index += 1
-        if selected_index >= len(get_menu_items(current_menu)):
-            selected_index = 0
+        if encoder_mode == "navigate":
+            selected_index += 1
+            if selected_index >= len(get_menu_items(current_menu)):
+                selected_index = 0
+
+            draw_menu()
+        else:
+            handle_encoder_mode_step(1)
 
         encoder_steps = 0
-        draw_menu()
 
     elif encoder_steps <= -2:
-        selected_index -= 1
-        if selected_index < 0:
-            selected_index = len(get_menu_items(current_menu)) - 1
+        if encoder_mode == "navigate":
+            selected_index -= 1
+            if selected_index < 0:
+                selected_index = len(get_menu_items(current_menu)) - 1
+
+            draw_menu()
+        else:
+            handle_encoder_mode_step(-1)
 
         encoder_steps = 0
-        draw_menu()
 
 def handle_encoder_button():
     global last_encoder_button_state
     global encoder_button_pressed_at
+    global encoder_mode
 
     now = time.monotonic()
     current_state = encoder_sw.value
@@ -712,9 +954,20 @@ def handle_encoder_button():
         press_duration = now - encoder_button_pressed_at
 
         if press_duration >= encoder_back_hold_time:
-            go_back()
+            if encoder_mode == "navigate":
+                go_back()
+            else:
+                encoder_mode = "navigate"
+                show_message("Encoder", "Navigate")
+                time.sleep(0.6)
+                draw_menu()
         else:
-            run_action()
+            if encoder_mode == "navigate":
+                run_action()
+            else:
+                show_message("Encoder", format_action_label("encoder_" + encoder_mode))
+                time.sleep(0.4)
+                draw_menu()
 
         time.sleep(0.15)
 

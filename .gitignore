@@ -3,3 +3,12 @@
 .fseventsd
 .Spotlight-V100
 ._*
+.Trash-*
+__pycache__/
+*.pyc
+
+# CircuitPython device/runtime artifacts
+boot_out.txt
+
+# Local editor settings
+.vscode/
