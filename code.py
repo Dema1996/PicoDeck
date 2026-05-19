@@ -5,6 +5,8 @@ import digitalio
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.keycode import Keycode
+from adafruit_hid.consumer_control import ConsumerControl
+from adafruit_hid.consumer_control_code import ConsumerControlCode
 
 import adafruit_character_lcd.character_lcd as characterlcd
 
@@ -40,6 +42,7 @@ lcd = characterlcd.Character_LCD_Mono(
 # =========================
 
 keyboard = Keyboard(usb_hid.devices)
+consumer_control = ConsumerControl(usb_hid.devices)
 
 
 # =========================
@@ -117,8 +120,16 @@ menus = {
             "action": "spotlight"
         },
         {
+            "label": "Mission Control",
+            "action": "mission_control"
+        },
+        {
             "label": "Lock Mac",
             "action": "lock_mac"
+        },
+        {
+            "label": "Show Desktop",
+            "action": "show_desktop"
         },
         {
             "label": "Zurueck",
@@ -179,6 +190,10 @@ def send_shortcut(*keys):
     keyboard.release_all()
 
 
+def send_media(consumer_code):
+    consumer_control.send(consumer_code)
+
+
 def run_action():
 
     global current_menu
@@ -187,7 +202,7 @@ def run_action():
 
     item = menus[current_menu][selected_index]
 
-    # Untermenü öffnen
+    # Untermenue oeffnen
     if "submenu" in item:
 
         menu_stack.append(current_menu)
@@ -201,25 +216,34 @@ def run_action():
 
         return
 
-    # Aktion ausführen
+    # Aktion ausfuehren
     if "action" in item:
 
         action = item["action"]
 
+        # Zurueck ueber Encoder-Auswahl
         if action == "back":
+
             if len(menu_stack) > 0:
+
                 current_menu = menu_stack.pop()
+
                 selected_index = 0
                 last_selected_index = -1
 
                 draw_menu()
 
             return
-        
+
         show_message("Action", action)
+        time.sleep(0.2)
 
         if action == "spotlight":
-            send_shortcut(Keycode.COMMAND, Keycode.SPACE)
+            send_shortcut(
+                Keycode.COMMAND, 
+                Keycode.SPACE
+            )
+            
 
         elif action == "lock_mac":
             send_shortcut(
@@ -228,23 +252,40 @@ def run_action():
                 Keycode.Q
             )
 
+        elif action == "screenshot":
+            send_shortcut(
+                Keycode.COMMAND,
+                Keycode.SHIFT,
+                Keycode.FIVE
+            )
+        
+        elif action == "mission_control":
+            send_shortcut(
+                Keycode.CONTROL, 
+                Keycode.UP_ARROW
+            )
+
+        elif action == "show_desktop":
+            send_shortcut(Keycode.F11)
+
         elif action == "play_pause":
-            send_shortcut(Keycode.SPACEBAR)
+            send_media(ConsumerControlCode.PLAY_PAUSE)
 
         elif action == "next_track":
-            send_shortcut(Keycode.RIGHT_ARROW)
+            send_media(ConsumerControlCode.SCAN_NEXT_TRACK)
 
         elif action == "volume_up":
-            #send_shortcut(Keycode.VOLUME_INCREMENT)
-            send_shortcut(Keycode.F12)
+            send_media(ConsumerControlCode.VOLUME_INCREMENT)
 
         elif action == "open_vscode":
-            send_shortcut(Keycode.COMMAND, Keycode.SPACE)
+            send_shortcut(
+                Keycode.COMMAND, 
+                Keycode.SPACE
+            )
 
         time.sleep(0.3)
 
         draw_menu()
-
 
 # =========================
 # BUTTON HELPERS
