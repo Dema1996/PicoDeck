@@ -68,10 +68,14 @@ Each profile (`default`, `coding`, `media`) has its own factory defaults in `def
 
 | Role | Pin |
 |---|---|
-| LCD RS / E | GP2 / GP3 |
-| LCD D4–D7 | GP4–GP7 |
+| TFT SCK / MOSI / MISO | GP2 / GP3 / GP4 |
+| TFT CS / D/C / RESET | GP5 / GP6 / GP7 |
 | btn_back / btn_up / btn_down / btn_select | GP8–GP11 |
 | Encoder CLK / DT / SW | GP12 / GP13 / GP14 |
+| TFT LED (backlight) | GP15 |
 | btn_favorite | GP16 |
+| Touch CS / IRQ (optional) | GP17 / GP18 |
 
 Buttons use `INPUT_PULLUP`; pressed = `LOW`.
+
+Display: AZDelivery 2.4" ILI9341 SPI (320×240). SPI0 hardware bus on GP2–GP4.
