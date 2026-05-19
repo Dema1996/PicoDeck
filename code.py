@@ -3,6 +3,7 @@ import json
 import board
 import digitalio
 import microcontroller
+import supervisor
 
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
@@ -273,7 +274,18 @@ selected_index = 0
 # DISPLAY FUNCTIONS
 # =========================
 
+def _print_lcd(line1, line2):
+    if not supervisor.runtime.serial_connected:
+        return
+    print("+----------------+")
+    print("|" + line1[:16].ljust(16) + "|")
+    print("|" + line2[:16].ljust(16) + "|")
+    print("+----------------+")
+
+
 def draw_menu():
+    lcd.clear()
+
     items = get_menu_items(current_menu)
     item = items[selected_index]["label"]
 
@@ -283,12 +295,14 @@ def draw_menu():
     line1 = header[:10] + " " + counter
     line2 = "> " + item
 
-    lcd.message = line1[:16].ljust(16) + "\n" + line2[:16].ljust(16)
+    lcd.message = line1[:16] + "\n" + line2[:16]
+    _print_lcd(line1, line2)
 
 
 def show_message(line1, line2=""):
     lcd.clear()
     lcd.message = line1[:16] + "\n" + line2[:16]
+    _print_lcd(line1, line2)
 
 
 def get_menu_header(menu_name):
