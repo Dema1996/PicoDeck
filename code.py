@@ -8,6 +8,7 @@ import usb_cdc
 
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
+from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from adafruit_hid.keycode import Keycode
 from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
@@ -46,6 +47,7 @@ lcd = characterlcd.Character_LCD_Mono(
 # =========================
 
 keyboard = Keyboard(usb_hid.devices)
+keyboard_layout = KeyboardLayoutUS(keyboard)
 consumer_control = ConsumerControl(usb_hid.devices)
 
 
@@ -99,6 +101,7 @@ button_pins = {
     "favorite": "GP16"
 }
 button_order = ["back", "up", "down", "select", "favorite"]
+button_hold_state = {name: {"pressed_at": None, "handled": False} for name in ["back", "up", "down", "select", "favorite"]}
 profile_order = ["default", "coding", "media"]
 profile_labels = {
     "default": "Default",
@@ -106,15 +109,29 @@ profile_labels = {
     "media": "Media"
 }
 default_button_profiles = {
-    "default": dict(default_button_actions),
-    "coding": dict(default_button_actions),
-    "media": dict(default_button_actions)
+    "default": {
+        "back": "mission_control",
+        "up": "play_pause",
+        "down": "previous_track",
+        "select": "volume_down",
+        "favorite": "play_pause"
+    },
+    "coding": {
+        "back": "command_palette",
+        "up": "toggle_terminal",
+        "down": "new_terminal",
+        "select": "format_document",
+        "favorite": "open_vscode"
+    },
+    "media": {
+        "back": "mute",
+        "up": "previous_track",
+        "down": "next_track",
+        "select": "play_pause",
+        "favorite": "volume_up"
+    }
 }
-button_profiles = {
-    "default": dict(default_button_actions),
-    "coding": dict(default_button_actions),
-    "media": dict(default_button_actions)
-}
+button_profiles = {k: dict(v) for k, v in default_button_profiles.items()}
 current_profile = "default"
 
 
@@ -186,37 +203,6 @@ menus = {
         }
     ],
 
-    "system": [
-        {
-            "label": "Spotlight",
-            "action": "spotlight"
-        },
-        {
-            "label": "App Switcher",
-            "action": "app_switcher"
-        },
-        {
-            "label": "Previous App",
-            "action": "previous_app"
-        },
-        {
-            "label": "Mission Control",
-            "action": "mission_control"
-        },
-        {
-            "label": "Lock Mac",
-            "action": "lock_mac"
-        },
-        {
-            "label": "Show Desktop",
-            "action": "show_desktop"
-        },
-        {
-            "label": "Zurueck",
-            "action": "back"
-        }
-    ],
-
     "coding": [
         {
             "label": "VSCode",
@@ -237,6 +223,49 @@ menus = {
         {
             "label": "Screenshot",
             "action": "screenshot"
+        },
+        {
+            "label": "New Terminal",
+            "action": "new_terminal"
+        },
+        {
+            "label": "Split Editor",
+            "action": "split_editor"
+        },
+        {
+            "label": "Zurueck",
+            "action": "back"
+        }
+    ],
+
+    "system": [
+        {
+            "label": "Spotlight",
+            "action": "spotlight"
+        },
+        {
+            "label": "App Switcher",
+            "action": "app_switcher"
+        },
+        {
+            "label": "Previous App",
+            "action": "previous_app"
+        },
+        {
+            "label": "Mission Ctrl",
+            "action": "mission_control"
+        },
+        {
+            "label": "Lock Mac",
+            "action": "lock_mac"
+        },
+        {
+            "label": "Show Desktop",
+            "action": "show_desktop"
+        },
+        {
+            "label": "Close Window",
+            "action": "close_window"
         },
         {
             "label": "Zurueck",
@@ -356,6 +385,9 @@ def format_action_label(action):
         "toggle_terminal": "Terminal",
         "format_document": "Format Doc",
         "screenshot": "Screenshot",
+        "new_terminal": "New Terminal",
+        "split_editor": "Split Editor",
+        "close_window": "Close Window",
         "encoder_navigate": "Enc Nav",
         "encoder_volume": "Enc Vol",
         "encoder_brightness": "Enc Bright"
@@ -479,12 +511,8 @@ def load_button_actions():
     global current_profile
 
     valid_actions = get_valid_actions()
-    button_actions = dict(default_button_actions)
-    button_profiles = {
-        "default": dict(default_button_actions),
-        "coding": dict(default_button_actions),
-        "media": dict(default_button_actions)
-    }
+    button_actions = dict(default_button_profiles["default"])
+    button_profiles = {k: dict(v) for k, v in default_button_profiles.items()}
     current_profile = "default"
 
     try:
@@ -537,8 +565,8 @@ def save_button_actions():
 def reset_button_actions():
     global button_actions
 
-    button_actions = dict(default_button_actions)
-    button_profiles[current_profile] = dict(default_button_actions)
+    button_actions = dict(default_button_profiles[current_profile])
+    button_profiles[current_profile] = dict(default_button_profiles[current_profile])
     save_button_actions()
 
 
@@ -589,7 +617,9 @@ SHORTCUT_ACTIONS = {
     "format_document":  (Keycode.OPTION, Keycode.SHIFT, Keycode.F),
     "app_switcher":     (Keycode.COMMAND, Keycode.TAB),
     "previous_app":     (Keycode.COMMAND, Keycode.SHIFT, Keycode.TAB),
-    "open_vscode":      (Keycode.COMMAND, Keycode.SPACE),
+    "new_terminal":     (Keycode.CONTROL, Keycode.GRAVE_ACCENT),
+    "split_editor":     (Keycode.COMMAND, Keycode.BACKSLASH),
+    "close_window":     (Keycode.COMMAND, Keycode.W),
 }
 
 MEDIA_ACTIONS = {
@@ -637,6 +667,10 @@ def execute_action(action):
 
     if action in SHORTCUT_ACTIONS:
         send_shortcut(*SHORTCUT_ACTIONS[action])
+    elif action == "open_vscode":
+        send_shortcut(Keycode.COMMAND, Keycode.SPACE)
+        time.sleep(0.5)
+        keyboard_layout.write("code\n")
     elif action in MEDIA_ACTIONS:
         send_media(MEDIA_ACTIONS[action])
     elif action in ENCODER_MODE_ACTIONS:
@@ -701,7 +735,7 @@ def show_button_mapping(button_name):
 
 def reset_single_button(button_name):
     try:
-        save_action_to_button(button_name, default_button_actions[button_name])
+        save_action_to_button(button_name, default_button_profiles[current_profile][button_name])
     except (OSError, ValueError):
         show_message("Reset fehlg", button_pins[button_name])
         time.sleep(0.8)
@@ -820,10 +854,6 @@ def is_pressed(button):
     return not button.value
 
 
-def wait_until_released(button):
-    while is_pressed(button):
-        time.sleep(0.01)
-
 # =========================
 # ROTARY ENCODER
 # =========================
@@ -917,22 +947,22 @@ def handle_encoder_button():
 
 
 def handle_macro_button(button, button_name):
-    if not is_pressed(button):
-        return
+    state = button_hold_state[button_name]
+    pressed = is_pressed(button)
 
-    pressed_at = time.monotonic()
-
-    while is_pressed(button):
-        if time.monotonic() - pressed_at >= button_assign_hold_time:
+    if pressed and state["pressed_at"] is None:
+        state["pressed_at"] = time.monotonic()
+        state["handled"] = False
+    elif pressed and not state["handled"]:
+        if time.monotonic() - state["pressed_at"] >= button_assign_hold_time:
             assign_current_action_to_button(button_name)
-            wait_until_released(button)
+            state["handled"] = True
+    elif not pressed and state["pressed_at"] is not None:
+        if not state["handled"]:
+            trigger_button_action(button_name)
             time.sleep(0.15)
-            return
-
-        time.sleep(0.01)
-
-    trigger_button_action(button_name)
-    time.sleep(0.15)
+        state["pressed_at"] = None
+        state["handled"] = False
 
 # =========================
 # STARTUP

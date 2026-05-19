@@ -28,9 +28,11 @@ Dynamic menus (`buttons`, `button_detail`, `profiles`) are generated at read-tim
 
 ### Adding a New Action
 
-1. Add an entry to one of the static menus in the `menus` dict with `"action": "your_action_name"`.
-2. Add a corresponding `elif action == "your_action_name":` branch in `execute_action()`.
-3. Add a display label in `format_action_label()`.
+For keyboard shortcuts: add an entry to `SHORTCUT_ACTIONS` (tuple of `Keycode.*` values) and add a menu item to the relevant submenu. For media keys: add to `MEDIA_ACTIONS` (a `ConsumerControlCode.*` value). `execute_action()` dispatches via these dicts; no new branches needed for standard shortcuts.
+
+For actions with custom behaviour (e.g. `open_vscode` which types text via `keyboard_layout`), add an `elif` branch in `execute_action()`.
+
+Always add a display label in `format_action_label()`.
 
 `get_valid_actions()` derives the assignable-action set from `menus` automatically, so new menu actions become button-mappable for free.
 
@@ -50,7 +52,17 @@ The encoder uses a 4-step gray-code transition table. Accumulator `encoder_steps
 
 ### Button Hold Behaviour
 
-`handle_macro_button()` blocks in a polling loop while the button is held. A hold ≥ `button_assign_hold_time` (1 s) maps the currently highlighted menu item to that button instead of executing it. Short press executes the mapped action.
+`handle_macro_button()` is non-blocking. It uses `button_hold_state` (a dict keyed by button name) to track press start time and whether the hold action already fired. A hold ≥ `button_assign_hold_time` (1 s) maps the currently highlighted menu item to that button; a short press executes the mapped action. The main loop calls all five buttons every iteration, so encoder and other buttons stay responsive during a hold.
+
+### Profile Defaults
+
+Each profile (`default`, `coding`, `media`) has its own factory defaults in `default_button_profiles`. `reset_button_actions()` and `reset_single_button()` restore to the active profile's defaults, not the global `default` profile.
+
+## CircuitPython Gotchas
+
+- **No `str.ljust()`** — CircuitPython omits this method. Use the `_pad16()` helper (string slice + space concatenation).
+- **`print()` blocks when USB is connected but no terminal is reading** — use `supervisor.runtime.serial_connected` as a guard and write to `usb_cdc.console` directly.
+- **`.mpy` files are version-locked** — the format version must match the running CircuitPython major version. A `.mpy` compiled for CP 9.x will not load under CP 10.x.
 
 ## Pin Map
 
