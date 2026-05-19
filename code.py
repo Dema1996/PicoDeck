@@ -130,6 +130,14 @@ menus = {
             "action": "play_pause"
         },
         {
+            "label": "Stop",
+            "action": "stop"
+        },
+        {
+            "label": "Mute",
+            "action": "mute"
+        },
+        {
             "label": "Previous Trk",
             "action": "previous_track"
         },
@@ -157,6 +165,14 @@ menus = {
             "action": "spotlight"
         },
         {
+            "label": "App Switcher",
+            "action": "app_switcher"
+        },
+        {
+            "label": "Previous App",
+            "action": "previous_app"
+        },
+        {
             "label": "Mission Control",
             "action": "mission_control"
         },
@@ -180,6 +196,10 @@ menus = {
             "action": "open_vscode"
         },
         {
+            "label": "Screenshot",
+            "action": "screenshot"
+        },
+        {
             "label": "Zurueck",
             "action": "back"
         }
@@ -188,6 +208,7 @@ menus = {
 
 current_menu = "main"
 menu_stack = []
+current_button_target = "favorite"
 
 selected_index = 0
 last_selected_index = -1
@@ -221,11 +242,15 @@ def format_action_label(action):
     labels = {
         "mission_control": "MissionCtrl",
         "play_pause": "PlayPause",
+        "stop": "Stop",
+        "mute": "Mute",
         "previous_track": "Prev Track",
         "next_track": "Next Track",
         "volume_up": "Volume Up",
         "volume_down": "Volume Dn",
         "spotlight": "Spotlight",
+        "app_switcher": "AppSwitch",
+        "previous_app": "Prev App",
         "lock_mac": "Lock Mac",
         "show_desktop": "Desktop",
         "open_vscode": "VSCode",
@@ -240,7 +265,7 @@ def get_buttons_menu():
     for button_name in button_order:
         items.append({
             "label": button_pins[button_name],
-            "action": "show_button_mapping",
+            "action": "open_button_detail",
             "button_name": button_name
         })
 
@@ -259,8 +284,38 @@ def get_buttons_menu():
 def get_menu_items(menu_name):
     if menu_name == "buttons":
         return get_buttons_menu()
+    if menu_name == "button_detail":
+        return get_button_detail_menu()
 
     return menus[menu_name]
+
+
+def get_button_detail_menu():
+    items = [{
+        "label": "Akt: " + format_action_label(button_actions[current_button_target]),
+        "action": "show_button_mapping",
+        "button_name": current_button_target
+    }]
+
+    for action in sorted(get_valid_actions()):
+        items.append({
+            "label": format_action_label(action),
+            "action": "assign_button_action",
+            "button_name": current_button_target,
+            "assign_action": action
+        })
+
+    items.append({
+        "label": "Reset Taste",
+        "action": "reset_single_button",
+        "button_name": current_button_target
+    })
+    items.append({
+        "label": "Zurueck",
+        "action": "back"
+    })
+
+    return items
 
 
 def get_valid_actions():
@@ -319,6 +374,17 @@ def reset_button_actions():
 
     button_actions = dict(default_button_actions)
     favorite_action = button_actions["favorite"]
+    save_button_actions()
+
+
+def save_action_to_button(button_name, action):
+    global favorite_action
+
+    button_actions[button_name] = action
+
+    if button_name == "favorite":
+        favorite_action = action
+
     save_button_actions()
 
 
@@ -384,6 +450,12 @@ def execute_action(action):
     elif action == "play_pause":
         send_media(ConsumerControlCode.PLAY_PAUSE)
 
+    elif action == "stop":
+        send_media(ConsumerControlCode.STOP)
+
+    elif action == "mute":
+        send_media(ConsumerControlCode.MUTE)
+
     elif action == "next_track":
         send_media(ConsumerControlCode.SCAN_NEXT_TRACK)
 
@@ -402,12 +474,24 @@ def execute_action(action):
             Keycode.SPACE
         )
 
+    elif action == "app_switcher":
+        send_shortcut(
+            Keycode.COMMAND,
+            Keycode.TAB
+        )
+
+    elif action == "previous_app":
+        send_shortcut(
+            Keycode.COMMAND,
+            Keycode.SHIFT,
+            Keycode.TAB
+        )
+
     time.sleep(0.3)
     draw_menu()
 
 
 def assign_current_action_to_button(button_name):
-    global favorite_action
     item = get_menu_items(current_menu)[selected_index]
 
     if "action" not in item:
@@ -424,13 +508,8 @@ def assign_current_action_to_button(button_name):
         draw_menu()
         return
 
-    button_actions[button_name] = action
-
-    if button_name == "favorite":
-        favorite_action = action
-
     try:
-        save_button_actions()
+        save_action_to_button(button_name, action)
     except (OSError, ValueError):
         show_message("Speichern fehlg", "Mapping aktiv")
         time.sleep(0.8)
@@ -451,6 +530,20 @@ def show_button_mapping(button_name):
     draw_menu()
 
 
+def reset_single_button(button_name):
+    try:
+        save_action_to_button(button_name, default_button_actions[button_name])
+    except (OSError, ValueError):
+        show_message("Reset fehlg", button_pins[button_name])
+        time.sleep(0.8)
+        draw_menu()
+        return
+
+    show_message("Reset", button_pins[button_name])
+    time.sleep(0.8)
+    draw_menu()
+
+
 def trigger_button_action(button_name):
     action = button_actions[button_name]
 
@@ -466,6 +559,7 @@ def run_action():
     global current_menu
     global selected_index
     global last_selected_index
+    global current_button_target
 
     item = get_menu_items(current_menu)[selected_index]
 
@@ -488,8 +582,38 @@ def run_action():
 
         action = item["action"]
 
+        if action == "open_button_detail":
+            current_button_target = item["button_name"]
+            menu_stack.append(current_menu)
+            current_menu = "button_detail"
+            selected_index = 0
+            last_selected_index = -1
+            draw_menu()
+            return
+
         if action == "show_button_mapping":
             show_button_mapping(item["button_name"])
+            return
+
+        if action == "assign_button_action":
+            try:
+                save_action_to_button(
+                    item["button_name"],
+                    item["assign_action"]
+                )
+            except (OSError, ValueError):
+                show_message("Speichern fehlg", "Bitte reboot")
+                time.sleep(0.8)
+                draw_menu()
+                return
+
+            show_message("Gemappt auf", button_pins[item["button_name"]])
+            time.sleep(0.8)
+            draw_menu()
+            return
+
+        if action == "reset_single_button":
+            reset_single_button(item["button_name"])
             return
 
         if action == "reset_button_defaults":
