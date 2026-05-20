@@ -10,6 +10,7 @@ import state
 import menus
 import display
 import wifi_server
+import ble_hid
 
 keyboard = Keyboard(usb_hid.devices)
 keyboard_layout = KeyboardLayoutUS(keyboard)
@@ -29,6 +30,7 @@ SHORTCUT_ACTIONS = {
     "new_terminal":     (Keycode.CONTROL, Keycode.GRAVE_ACCENT),
     "split_editor":     (Keycode.COMMAND, Keycode.BACKSLASH),
     "close_window":     (Keycode.COMMAND, Keycode.W),
+    "open_whisper":     (Keycode.F5,),
 }
 
 MEDIA_ACTIONS = {
@@ -53,12 +55,15 @@ ENCODER_MODE_ACTIONS = {
 
 def send_shortcut(*keys):
     keyboard.press(*keys)
+    ble_hid.press(*keys)
     time.sleep(0.1)
     keyboard.release_all()
+    ble_hid.release_all()
 
 
 def send_media(consumer_code):
     consumer_control.send(consumer_code)
+    ble_hid.send_consumer(consumer_code)
 
 
 def execute_action(action):
@@ -70,10 +75,29 @@ def execute_action(action):
         send_shortcut(Keycode.COMMAND, Keycode.SPACE)
         time.sleep(0.5)
         keyboard_layout.write("code\n")
+        ble_hid.send_text("code\n")
     elif action in MEDIA_ACTIONS:
         send_media(MEDIA_ACTIONS[action])
     elif action in ENCODER_MODE_ACTIONS:
         state.encoder_mode = ENCODER_MODE_ACTIONS[action]
+    elif action == "wifi_status":
+        if wifi_server.active:
+            mode_str = "STA" if wifi_server.mode == "sta" else "AP"
+            display.show_message(mode_str, wifi_server.ip())
+        else:
+            display.show_message("WiFi", "Aus")
+        time.sleep(1.5)
+    elif action == "wifi_start_ap":
+        if wifi_server.active:
+            wifi_server.stop()
+        display.show_message("WiFi AP", "Startet...")
+        if wifi_server.start_ap():
+            state.wifi_active = True
+            display.show_message(wifi_server.SSID, wifi_server.ip())
+            time.sleep(2.0)
+        else:
+            display.show_message("AP Fehler", "")
+            time.sleep(1.0)
     elif action == "toggle_wifi":
         if wifi_server.active:
             wifi_server.stop()
@@ -117,6 +141,61 @@ def execute_action(action):
         state.button_assign_hold_time = 2.0
         display.show_message("Hold-Zeit", "2.0 Sek")
         time.sleep(0.8)
+    elif action == "bt_status":
+        display.show_message("Bluetooth", ble_hid.status_str())
+        time.sleep(1.5)
+    elif action == "bt_toggle":
+        if ble_hid.active:
+            ble_hid.disable()
+            display.show_message("Bluetooth", "Deaktiviert")
+        else:
+            ble_hid.enable()
+            display.show_message("Bluetooth", "Aktiviert")
+        time.sleep(0.8)
+    elif action == "ss_timeout_15":
+        state.screensaver_timeout = 15
+        display.show_message("Bildschirm", "15 Sek")
+        time.sleep(0.8)
+    elif action == "ss_timeout_30":
+        state.screensaver_timeout = 30
+        display.show_message("Bildschirm", "30 Sek")
+        time.sleep(0.8)
+    elif action == "ss_timeout_60":
+        state.screensaver_timeout = 60
+        display.show_message("Bildschirm", "1 Minute")
+        time.sleep(0.8)
+    elif action == "ss_timeout_300":
+        state.screensaver_timeout = 300
+        display.show_message("Bildschirm", "5 Minuten")
+        time.sleep(0.8)
+    elif action == "ss_timeout_off":
+        state.screensaver_timeout = 9999
+        display.show_message("Bildschirm", "Aus")
+        time.sleep(0.8)
+    elif action.startswith("brightness_"):
+        try:
+            level = int(action.split("_")[1])
+            state.brightness = max(10, min(100, level))
+            display.set_brightness(state.brightness)
+            display.show_message("Helligkeit", str(state.brightness) + "%")
+            time.sleep(0.6)
+        except (ValueError, IndexError):
+            pass
+    elif action == "toggle_inversion":
+        display.set_inversion(not state.display_inverted)
+        display.show_message("Invertierung", "Ein" if state.display_inverted else "Aus")
+        time.sleep(0.6)
+    elif action == "menu_timeout_off":
+        state.menu_timeout = 0
+        display.show_message("Men\xfc-Timeout", "Aus")
+        time.sleep(0.6)
+    elif action.startswith("menu_timeout_"):
+        try:
+            state.menu_timeout = int(action.split("_")[2])
+            display.show_message("Men\xfc-Timeout", action.split("_")[2] + " Sek")
+            time.sleep(0.6)
+        except (ValueError, IndexError):
+            pass
     time.sleep(0.3)
     display.draw_menu()
 

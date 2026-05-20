@@ -112,7 +112,7 @@ def assign_current_action_to_button(button_name):
         return
     action = menus.get_assignment_target(item)
     if action == "back":
-        display.show_message("Kein Mapping", "Nicht Zurueck")
+        display.show_message("Kein Mapping", "Nicht Zurück")
         time.sleep(0.8)
         display.draw_menu()
         return

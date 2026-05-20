@@ -11,6 +11,9 @@ import persistence
 import touch
 import sdcard
 import wifi_server
+import screensaver
+import boot_anim
+import ble_hid
 
 
 # =========================
@@ -24,11 +27,11 @@ def setup_button(pin):
     return button
 
 
-btn_back     = setup_button(board.GP8)
-btn_up       = setup_button(board.GP9)
-btn_down     = setup_button(board.GP10)
-btn_select   = setup_button(board.GP11)
-btn_favorite = setup_button(board.GP16)
+btn_f1 = setup_button(board.GP8)
+btn_f2 = setup_button(board.GP9)
+btn_f3 = setup_button(board.GP10)
+btn_f4 = setup_button(board.GP11)
+btn_f5 = setup_button(board.GP16)
 
 encoder_clk = setup_button(board.GP12)
 encoder_dt  = setup_button(board.GP13)
@@ -61,18 +64,24 @@ def handle_encoder():
     state.last_encoder_state = current_state
     state.last_encoder_time = now
     if state.encoder_steps >= state.encoder_threshold:
+        state.last_activity = now
+        state.last_encoder_activity = now
         step = -1 if state.encoder_reversed else 1
         if state.encoder_mode == "navigate":
-            state.selected_index = (state.selected_index + step) % len(menus.get_menu_items(state.current_menu))
-            display.draw_menu()
+            if state.current_menu != "dashboard":
+                state.selected_index = (state.selected_index + step) % len(menus.get_menu_items(state.current_menu))
+                display.draw_menu()
         else:
             actions.handle_encoder_mode_step(step)
         state.encoder_steps = 0
     elif state.encoder_steps <= -state.encoder_threshold:
+        state.last_activity = now
+        state.last_encoder_activity = now
         step = 1 if state.encoder_reversed else -1
         if state.encoder_mode == "navigate":
-            state.selected_index = (state.selected_index + step) % len(menus.get_menu_items(state.current_menu))
-            display.draw_menu()
+            if state.current_menu != "dashboard":
+                state.selected_index = (state.selected_index + step) % len(menus.get_menu_items(state.current_menu))
+                display.draw_menu()
         else:
             actions.handle_encoder_mode_step(step)
         state.encoder_steps = 0
@@ -83,23 +92,27 @@ def handle_encoder_button():
     current_state = encoder_sw.value
     if not current_state and state.last_encoder_button_state:
         state.encoder_button_pressed_at = now
+        state.last_encoder_activity = now
     elif current_state and not state.last_encoder_button_state:
         press_duration = now - state.encoder_button_pressed_at
+        state.last_encoder_activity = now
         if press_duration >= state.encoder_back_hold_time:
             if state.encoder_mode == "navigate":
                 display.go_back()
             else:
                 state.encoder_mode = "navigate"
-                display.show_message("Encoder", "Navigate")
-                time.sleep(0.6)
                 display.draw_menu()
         else:
-            if state.encoder_mode == "navigate":
-                run_action()
-            else:
-                display.show_message("Encoder", menus.format_action_label("encoder_" + state.encoder_mode))
-                time.sleep(0.4)
+            if state.encoder_mode != "navigate":
+                state.encoder_mode = "navigate"
                 display.draw_menu()
+            elif state.current_menu == "dashboard":
+                state.menu_stack.append("dashboard")
+                state.current_menu = "main"
+                state.selected_index = 0
+                display.draw_menu()
+            else:
+                run_action()
         time.sleep(0.15)
     state.last_encoder_button_state = current_state
 
@@ -190,6 +203,14 @@ def handle_touch():
     while touch.read_position() is not None:
         time.sleep(0.01)
     time.sleep(0.05)
+    state.last_activity = time.monotonic()
+
+    if state.current_menu == "dashboard":
+        state.menu_stack.append("dashboard")
+        state.current_menu = "main"
+        state.selected_index = 0
+        display.draw_menu()
+        return
 
     if y < display._HDR:
         display.go_back()
@@ -224,10 +245,12 @@ def handle_macro_button(button, button_name):
 # STARTUP
 # =========================
 
-display.show_message("Macro Pad", "Startet...")
-time.sleep(1)
+boot_anim.play(2.5)
 persistence.load_button_actions()
 sdcard.mount()
+display.show_message("Bluetooth", "Startet...")
+ble_hid.setup()
+ble_hid.start_advertising()
 display.show_message("WiFi", "Startet...")
 if wifi_server.start():
     state.wifi_active = True
@@ -238,6 +261,7 @@ else:
     display.show_message("WiFi Fehler", "")
     time.sleep(1.0)
 display.draw_menu()
+state.last_activity = time.monotonic()
 
 
 # =========================
@@ -245,14 +269,48 @@ display.draw_menu()
 # =========================
 
 while True:
-    handle_encoder()
-    handle_encoder_button()
-    handle_touch()
-    handle_macro_button(btn_back,     "back")
-    handle_macro_button(btn_up,       "up")
-    handle_macro_button(btn_down,     "down")
-    handle_macro_button(btn_select,   "select")
-    handle_macro_button(btn_favorite, "favorite")
+    any_fn  = (is_pressed(btn_f1) or is_pressed(btn_f2) or is_pressed(btn_f3)
+               or is_pressed(btn_f4) or is_pressed(btn_f5))
+    any_enc = not encoder_sw.value
+
+    if any_fn or any_enc:
+        state.last_activity = time.monotonic()
+
+    # Fx buttons always execute their mapped action, even during screensaver
+    handle_macro_button(btn_f1, "f1")
+    handle_macro_button(btn_f2, "f2")
+    handle_macro_button(btn_f3, "f3")
+    handle_macro_button(btn_f4, "f4")
+    handle_macro_button(btn_f5, "f5")
+
+    if screensaver.active:
+        if any_fn or any_enc or touch.read_position() is not None:
+            screensaver.dismiss()
+            while not encoder_sw.value:
+                time.sleep(0.01)
+        else:
+            screensaver.update()
+    else:
+        handle_encoder()
+        handle_encoder_button()
+        handle_touch()
+        display.update_menu_scroll()
+        if (state.encoder_mode != "navigate"
+                and time.monotonic() - state.last_encoder_activity > 15.0):
+            state.encoder_mode = "navigate"
+            state.last_encoder_activity = time.monotonic()
+            display.draw_menu()
+        if (state.menu_timeout > 0
+                and state.current_menu != "dashboard"
+                and time.monotonic() - state.last_activity > state.menu_timeout):
+            state.menu_stack.clear()
+            state.current_menu = "dashboard"
+            state.selected_index = 0
+            display.draw_menu()
+        if time.monotonic() - state.last_activity > state.screensaver_timeout:
+            screensaver.draw()
+
+    ble_hid.poll()
     wifi_server.poll()
     if wifi_server.needs_reboot:
         display.show_message("WiFi", "Neustart...")
