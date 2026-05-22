@@ -1,13 +1,20 @@
 import time
+import os
 import state
 import display
 import wifi_server
 
 active = False
+dimmed = False
 _last_update = 0.0
 _last_scroll  = 0.0
 _scroll_offset = 0
 _cached_rssi = None
+
+_ss_images = []
+_ss_img_idx = 0
+_ss_img_last = 0.0
+_SS_IMG_INTERVAL = 10.0
 
 _WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 _MONTHS   = ["Jan", "Feb", "M\xe4r", "Apr", "Mai", "Jun",
@@ -52,7 +59,22 @@ def _wifi_str():
     return "AP " + ip_addr
 
 
+def _scan_ss_images():
+    global _ss_images, _ss_img_idx
+    _ss_images = []
+    try:
+        for name in sorted(os.listdir("/sd/screensaver")):
+            if name.lower().endswith(".bmp"):
+                _ss_images.append("/sd/screensaver/" + name)
+    except OSError:
+        pass
+    _ss_img_idx = 0
+
+
 def _render():
+    if _ss_images:
+        if display.show_sd_image(_ss_images[_ss_img_idx]):
+            return
     display.show_screensaver(
         _time_str(), _date_str(), _track_str(),
         state.profile_labels[state.current_profile],
@@ -78,34 +100,49 @@ def _scan_rssi():
 
 
 def draw():
-    global active, _last_update, _last_scroll, _scroll_offset
+    global active, dimmed, _last_update, _last_scroll, _scroll_offset, _ss_img_last
+    if state.idle_mode == "dim":
+        active = False
+        dimmed = True
+        display.set_brightness(state.dim_brightness)
+        return
     active = True
+    dimmed = False
     _scroll_offset = 0
     _last_update = time.monotonic()
     _last_scroll  = time.monotonic()
+    _ss_img_last  = time.monotonic()
     _scan_rssi()
-    display.set_brightness(20)
+    _scan_ss_images()
+    display.set_brightness(state.dim_brightness)
     _render()
 
 
 def update():
-    global _last_update, _last_scroll, _scroll_offset
+    global _last_update, _last_scroll, _scroll_offset, _ss_img_idx, _ss_img_last
     now = time.monotonic()
     need_redraw = False
-    if state.track_title and now - _last_scroll > _SCROLL_STEP:
-        _scroll_offset += 1
-        _last_scroll = now
-        need_redraw = True
-    if now - _last_update > 29:
-        _last_update = now
-        need_redraw = True
+    if _ss_images:
+        if now - _ss_img_last >= _SS_IMG_INTERVAL:
+            _ss_img_idx = (_ss_img_idx + 1) % len(_ss_images)
+            _ss_img_last = now
+            need_redraw = True
+    else:
+        if state.track_title and now - _last_scroll > _SCROLL_STEP:
+            _scroll_offset += 1
+            _last_scroll = now
+            need_redraw = True
+        if now - _last_update > 29:
+            _last_update = now
+            need_redraw = True
     if need_redraw:
         _render()
 
 
 def dismiss():
-    global active
+    global active, dimmed
     active = False
+    dimmed = False
     state.last_activity = time.monotonic()
     display.set_brightness(state.brightness)
     display.draw_menu()

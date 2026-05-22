@@ -9,7 +9,9 @@ _CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+-=#@"
 _N = 20  # columns at scale=1 → dense rain
 
 
-def play(duration=2.5):
+def play(duration=2.5, side_task=None, task_label="Laden..."):
+    """Play boot animation. If side_task is given it runs after the first rendered frame
+    so the animation is visible while the task blocks (e.g. sdcard.mount)."""
     import random
 
     grp = displayio.Group()
@@ -46,8 +48,23 @@ def play(duration=2.5):
 
     display.tft.root_group = grp
 
+    # Render one frame so animation is on screen before side_task blocks
+    for i in range(_N):
+        ys[i] += speeds[i]
+        if ys[i] > _H:
+            ys[i] = random.randint(-150, -20)
+            speeds[i] = random.randint(10, 24)
+        streams[i].anchored_position = (col_x[i], ys[i])
+        streams[i].text = _CHARS[i % len(_CHARS)]
+    display.tft.refresh()
+
+    if side_task is not None:
+        sub_lbl.text = task_label
+        display.tft.refresh()
+        side_task()
+
     start = time.monotonic()
-    tick = 0
+    tick = 1
     while time.monotonic() - start < duration:
         for i in range(_N):
             ys[i] += speeds[i]

@@ -3,6 +3,7 @@ import busio
 import displayio
 import fourwire
 import terminalio
+import vectorio
 from adafruit_display_text import label
 from adafruit_ili9341 import ILI9341
 import pwmio
@@ -12,6 +13,8 @@ import usb_cdc
 import time as _time
 import state
 import menus
+import console_log
+import sdcard
 
 displayio.release_displays()
 
@@ -39,6 +42,13 @@ _C_HDR_SUB = 0x6e7681
 _C_SEL_FG  = 0xffffff
 _C_ITEM_FG = 0x8b949e
 
+_THEMES = {
+    "dark":    (0x0d1117, 0x161b22, 0x1f4e8a, 0x79c0ff, 0x6e7681, 0xffffff, 0x8b949e, 0x21262d),
+    "dracula": (0x282a36, 0x44475a, 0x6272a4, 0xbd93f9, 0x6272a4, 0xf8f8f2, 0x6272a4, 0x383a4a),
+    "matrix":  (0x000000, 0x001400, 0x005000, 0x00ff41, 0x007700, 0x00ff41, 0x00aa00, 0x001a00),
+    "amber":   (0x0a0800, 0x1a1200, 0x4d3300, 0xffaa00, 0x886600, 0xffcc44, 0xaa7700, 0x1a1200),
+}
+
 _menu_scroll_offset = 0
 _menu_scroll_time   = 0.0
 _menu_last_label    = ""
@@ -50,7 +60,8 @@ _root = displayio.Group()
 _bg_bm = displayio.Bitmap(_W, _H, 1)
 _bg_pal = displayio.Palette(1)
 _bg_pal[0] = _C_BG
-_root.append(displayio.TileGrid(_bg_bm, pixel_shader=_bg_pal))
+_bg_tg = displayio.TileGrid(_bg_bm, pixel_shader=_bg_pal)
+_root.append(_bg_tg)
 
 _hdr_bm = displayio.Bitmap(_W, _HDR, 1)
 _hdr_pal = displayio.Palette(1)
@@ -67,6 +78,11 @@ _hdr_info.anchor_point = (1.0, 0.5)
 _hdr_info.anchored_position = (_W - 4, _HDR // 2)
 _root.append(_hdr_info)
 
+_sep_bm = displayio.Bitmap(_W, 2, 1)
+_sep_pal = displayio.Palette(1)
+_sep_pal[0] = _C_SEL_BG
+_root.append(displayio.TileGrid(_sep_bm, pixel_shader=_sep_pal, x=0, y=_HDR - 2))
+
 _row_pals = []
 _row_lbls = []
 for _i in range(_VIS):
@@ -81,6 +97,13 @@ for _i in range(_VIS):
     _lbl.anchored_position = (8, _y + _IH // 2)
     _row_lbls.append(_lbl)
     _root.append(_lbl)
+
+_footer_sep_bm  = displayio.Bitmap(_W, 1, 1)
+_footer_sep_pal = displayio.Palette(1)
+_footer_sep_pal[0] = _C_SEL_BG
+_footer_sep_pal.make_transparent(0)   # hidden by default; shown in dashboard
+_root.append(displayio.TileGrid(_footer_sep_bm, pixel_shader=_footer_sep_pal,
+                                 x=0, y=_HDR + 5 * _IH))
 
 # ── message group ─────────────────────────────────────────────────────────────
 
@@ -144,7 +167,65 @@ _ss_grp.append(displayio.TileGrid(
     _ss_bars_bm, pixel_shader=_ss_bars_pal,
     x=(_W - _BARS_W) // 2, y=267))
 
+# ── level overlay (volume / brightness) ──────────────────────────────────────
+
+_lvl_grp = displayio.Group()
+
+_lvl_bg_pal = displayio.Palette(1)
+_lvl_bg_pal[0] = _C_BG
+_lvl_grp.append(vectorio.Rectangle(pixel_shader=_lvl_bg_pal,
+                                    width=_W, height=_H, x=0, y=0))
+
+_lvl_icon = label.Label(_F, text="VOL", color=_C_HDR_FG, scale=3)
+_lvl_icon.anchor_point = (0.5, 0.5)
+_lvl_icon.anchored_position = (_W // 2, 100)
+_lvl_grp.append(_lvl_icon)
+
+_lvl_pct = label.Label(_F, text="50%", color=_C_SEL_FG, scale=2)
+_lvl_pct.anchor_point = (0.5, 0.5)
+_lvl_pct.anchored_position = (_W // 2, 175)
+_lvl_grp.append(_lvl_pct)
+
+_BAR_X = 20
+_BAR_Y = 215
+_BAR_W = _W - 40
+_BAR_H = 24
+
+_bar_track_pal = displayio.Palette(1)
+_bar_track_pal[0] = 0x21262d
+_lvl_grp.append(vectorio.Rectangle(pixel_shader=_bar_track_pal,
+                                    width=_BAR_W, height=_BAR_H,
+                                    x=_BAR_X, y=_BAR_Y))
+
+_bar_fill_pal = displayio.Palette(1)
+_bar_fill_pal[0] = _C_HDR_FG
+_bar_fill = vectorio.Rectangle(pixel_shader=_bar_fill_pal,
+                                width=1, height=_BAR_H,
+                                x=_BAR_X, y=_BAR_Y)
+_lvl_grp.append(_bar_fill)
+
+_overlay_active     = False
+_overlay_dismiss_at = 0.0
+
 tft.root_group = _root
+
+# ── SD card image support ─────────────────────────────────────────────────────
+
+_sd_file      = None   # currently open image file handle
+_sd_tg        = None   # TileGrid for the open image
+_sd_loaded_for = None  # key to avoid redundant reloads
+_dash_file      = None
+_dash_tg        = None
+_dash_loaded_for = None
+
+_sd_placeholder_bm  = displayio.Bitmap(1, 1, 1)
+_sd_placeholder_pal = displayio.Palette(1)
+_sd_placeholder_pal[0] = 0
+_sd_img_grp = displayio.Group()
+_sd_img_grp.append(displayio.TileGrid(_sd_placeholder_bm, pixel_shader=_sd_placeholder_pal))
+
+_root_slot0    = _bg_tg   # tracks what is currently at _root[0]
+_sd_img_slot0  = None     # tracks what is currently at _sd_img_grp[0]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -172,9 +253,163 @@ def _scroll_offset(total):
     return max(0, min(state.selected_index - half, total - _VIS))
 
 
+def _load_sd_image(path, key):
+    global _sd_file, _sd_tg, _sd_loaded_for
+    if _sd_loaded_for == key:
+        return _sd_tg
+    _release_sd_image()
+    try:
+        f = open(path, "rb")
+        odb = displayio.OnDiskBitmap(f)
+        tg = displayio.TileGrid(odb, pixel_shader=odb.pixel_shader)
+        _sd_file = f
+        _sd_tg = tg
+        _sd_loaded_for = key
+        return tg
+    except (OSError, ValueError):
+        _sd_loaded_for = key  # cache failure — don't retry until sd_reload
+        return None
+
+
+def _load_dashboard_image(path, key):
+    global _dash_file, _dash_tg, _dash_loaded_for
+    if _dash_loaded_for == key:
+        return _dash_tg
+    _release_dashboard_image()
+    try:
+        f = open(path, "rb")
+        odb = displayio.OnDiskBitmap(f)
+        tg = displayio.TileGrid(odb, pixel_shader=odb.pixel_shader)
+        _dash_file = f
+        _dash_tg = tg
+        _dash_loaded_for = key
+        return tg
+    except (OSError, ValueError):
+        _dash_loaded_for = key
+        return None
+
+
+def _release_sd_image():
+    global _sd_file, _sd_tg, _sd_loaded_for, _sd_img_slot0
+    if _sd_file is not None:
+        try:
+            _sd_file.close()
+        except Exception:
+            pass
+    _sd_file = None
+    _sd_tg = None
+    _sd_loaded_for = None
+    _sd_img_slot0 = None
+
+
+def _release_dashboard_image():
+    global _dash_file, _dash_tg, _dash_loaded_for
+    if _dash_file is not None:
+        try:
+            _dash_file.close()
+        except Exception:
+            pass
+    _dash_file = None
+    _dash_tg = None
+    _dash_loaded_for = None
+
+
+def _handle_sd_render_error(context, err):
+    sdcard.last_error = str(err)
+    console_log.log("SD render error ({}): {}".format(context, err))
+    _release_sd_image()
+    _release_dashboard_image()
+
+
+def reset_sd_caches():
+    _release_sd_image()
+    _release_dashboard_image()
+
+
+def _ensure_rows_opaque():
+    for p in _row_pals:
+        p.make_opaque(0)
+
+
+def _set_root_bg(tg):
+    global _root_slot0
+    if _root_slot0 is not tg:
+        _root[0] = tg
+        _root_slot0 = tg
+
+
 # ── public API ────────────────────────────────────────────────────────────────
 
-def draw_dashboard():
+def show_sd_image(path):
+    """Display a full-screen BMP from SD card. Returns True on success."""
+    global _sd_img_slot0
+    tg = _load_sd_image(path, "ss:" + path)
+    if tg is None:
+        return False
+    if _sd_img_slot0 is not tg:
+        _sd_img_grp[0] = tg
+        _sd_img_slot0 = tg
+    tft.root_group = _sd_img_grp
+    try:
+        tft.refresh()
+        return True
+    except OSError as e:
+        _handle_sd_render_error(path, e)
+        return False
+
+
+def set_theme(name):
+    global _C_BG, _C_HDR_BG, _C_SEL_BG, _C_HDR_FG, _C_HDR_SUB, _C_SEL_FG, _C_ITEM_FG
+    t = _THEMES.get(name, _THEMES["dark"])
+    _C_BG, _C_HDR_BG, _C_SEL_BG, _C_HDR_FG, _C_HDR_SUB, _C_SEL_FG, _C_ITEM_FG, bar_trk = t
+    # background + header
+    _bg_pal[0]  = _C_BG
+    _hdr_pal[0] = _C_HDR_BG
+    _sep_pal[0] = _C_SEL_BG
+    _footer_sep_pal[0] = _C_SEL_BG
+    _hdr_title.color = _C_HDR_FG
+    _hdr_info.color  = _C_HDR_SUB
+    # message overlay
+    _msg_pal[0]   = _C_BG
+    _msg_l2.color = _C_SEL_FG
+    # level overlay
+    _lvl_bg_pal[0]    = _C_BG
+    _lvl_icon.color   = _C_HDR_FG
+    _lvl_pct.color    = _C_SEL_FG
+    _bar_track_pal[0] = bar_trk
+    _bar_fill_pal[0]  = _C_HDR_FG
+    # screensaver
+    _ss_bg_pal[0]     = _C_BG
+    _ss_time.color    = _C_HDR_FG
+    _ss_date.color    = _C_SEL_FG
+    _ss_profile.color = _C_ITEM_FG
+    _ss_wifi.color    = _C_ITEM_FG
+    _ss_bars_pal[1]   = _C_HDR_FG
+    _ss_bars_pal[2]   = bar_trk
+    state.theme = name
+
+
+def show_level_overlay(lbl, level, max_level):
+    global _overlay_active, _overlay_dismiss_at
+    _overlay_active = True
+    _overlay_dismiss_at = _time.monotonic() + 1.5
+    _lvl_icon.text = lbl
+    pct = int(level * 100 / max_level)
+    _lvl_pct.text = str(pct) + "%"
+    _bar_fill.width = max(1, int(_BAR_W * level / max_level))
+    tft.root_group = _lvl_grp
+    tft.refresh()
+
+
+def update_overlay():
+    global _overlay_active
+    if _overlay_active and _time.monotonic() >= _overlay_dismiss_at:
+        _overlay_active = False
+        draw_menu()
+
+
+def draw_dashboard(skip_sd_image=False):
+    _ensure_rows_opaque()
     profile_short = state.profile_labels[state.current_profile][:8].upper()
     enc_short = {"navigate": "NAV", "volume": "VOL",
                  "brightness": str(state.brightness) + "%",
@@ -183,21 +418,47 @@ def draw_dashboard():
     _hdr_info.text = enc_short
     for i, btn in enumerate(state.button_order):
         action_lbl = menus.format_action_label(state.button_actions[btn])
-        _row_pals[i][0] = _C_BG
+        pin = state.button_pins[btn]
+        _row_pals[i][0] = _C_HDR_BG if i % 2 else _C_BG
         _row_lbls[i].color = _C_SEL_FG
-        _row_lbls[i].text = "  " + state.button_pins[btn] + "  " + action_lbl[:13]
-    for i in range(len(state.button_order), _VIS):
-        _row_pals[i][0] = _C_BG
-        _row_lbls[i].text = ""
+        _row_lbls[i].text = "[" + pin + "] " + action_lbl[:12]
+    enc_map = {"navigate": "NAV", "volume": "VOL",
+               "brightness": "HELL.", "mac_brightness": "MAC H."}
+    _row_pals[5].make_transparent(0)
+    _row_lbls[5].color = _C_HDR_SUB
+    _row_lbls[5].text = "  ENC: " + enc_map[state.encoder_mode] + (" R" if state.encoder_reversed else "")
+    _row_pals[6].make_transparent(0)
+    _row_lbls[6].color = _C_HDR_SUB
+    if state.ntp_synced:
+        t = _time.localtime()
+        time_str = "{:02d}:{:02d}".format(t.tm_hour, t.tm_min)
+    else:
+        time_str = "--:--"
+    _row_lbls[6].text = "  " + time_str + "  " + state.profile_labels[state.current_profile]
+    _footer_sep_pal.make_opaque(0)
+    # Dashboard uses the theme background directly; SD-backed BMPs are too slow
+    # because OnDiskBitmap re-reads from the card on every display refresh.
+    for p in _row_pals[:5]:
+        p.make_opaque(0)
+    _set_root_bg(_bg_tg)
     tft.root_group = _root
-    tft.refresh()
+    try:
+        tft.refresh()
+    except OSError as e:
+        _handle_sd_render_error("dashboard", e)
+        tft.root_group = _root
+        tft.refresh()
 
 
-def draw_menu():
+def draw_menu(skip_dashboard_image=False):
+    global _overlay_active, _menu_scroll_offset, _menu_last_label
+    _overlay_active = False
     if state.current_menu == "dashboard":
-        draw_dashboard()
+        draw_dashboard(skip_sd_image=skip_dashboard_image)
         return
-    global _menu_scroll_offset, _menu_last_label
+    _set_root_bg(_bg_tg)
+    _ensure_rows_opaque()
+    _footer_sep_pal.make_transparent(0)
     items = menus.get_menu_items(state.current_menu)
     total = len(items)
     v_offset = _scroll_offset(total)
@@ -225,9 +486,9 @@ def draw_menu():
                 padded = raw + "    "
                 doubled = padded + padded
                 h = _menu_scroll_offset % len(padded)
-                text = "> " + doubled[h:h + _MENU_VISIBLE]
+                text = "\xbb " + doubled[h:h + _MENU_VISIBLE]
             else:
-                text = ("> " if selected else "  ") + raw[:_MENU_VISIBLE]
+                text = ("\xbb " if selected else "  ") + raw[:_MENU_VISIBLE]
             _row_lbls[i].text = text
         else:
             _row_pals[i][0] = _C_BG
@@ -241,7 +502,7 @@ def draw_menu():
 
 def update_menu_scroll():
     global _menu_scroll_offset, _menu_scroll_time
-    if state.current_menu == "dashboard":
+    if _overlay_active or state.current_menu == "dashboard":
         return
     items = menus.get_menu_items(state.current_menu)
     if not items or state.selected_index >= len(items):

@@ -2,6 +2,8 @@ button_order = ["f1", "f2", "f3", "f4", "f5"]
 button_hold_state = {name: {"pressed_at": None, "handled": False} for name in button_order}
 button_pins = {"f1": "F1", "f2": "F2", "f3": "F3", "f4": "F4", "f5": "F5"}
 
+MAX_PROFILES = 6
+
 profile_order = ["default", "coding", "media"]
 profile_labels = {"default": "Default", "coding": "Coding", "media": "Media"}
 
@@ -31,6 +33,7 @@ default_button_profiles = {
 button_profiles = {k: dict(v) for k, v in default_button_profiles.items()}
 button_actions = dict(default_button_profiles["default"])
 current_profile = "default"
+current_profile_target = "default"
 
 encoder_mode = "navigate"
 encoder_reversed = False
@@ -48,9 +51,14 @@ button_assign_hold_time = 1.0
 encoder_back_hold_time = 0.6
 nvm_size = 1024
 
-screensaver_timeout = 30
+theme = "dark"
+screensaver_timeout = 9999
+idle_mode = "screensaver"
+dim_brightness = 20
 menu_timeout = 30
 display_inverted = False
+local_volume = 50         # estimated 0-100 (no OS feedback)
+local_mac_brightness = 50
 last_activity = 0.0
 track_title = ""
 tz_offset = 2       # UTC+2 (CEST); change to 1 in winter (CET)
@@ -60,6 +68,9 @@ last_encoder_time = 0.0
 last_encoder_activity = 0.0
 encoder_steps = 0
 encoder_button_pressed_at = 0.0
+ignore_next_encoder_release = False
 # set by code.py after hardware init
 last_encoder_state = 0
 last_encoder_button_state = True
+
+remote_nav = None  # set by wifi_server: "up","down","back","select","f1"–"f5", or action str

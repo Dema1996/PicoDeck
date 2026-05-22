@@ -182,6 +182,7 @@ def _stream_page(conn):
     def w(s):
         conn.sendall(s if isinstance(s, (bytes, bytearray)) else s.encode())
 
+    # Base CSS — identical to original (bytes only, no allocs)
     w(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
       b"Cache-Control: no-store\r\nConnection: close\r\n\r\n"
       b"<!DOCTYPE html><html><head><meta charset=utf-8>"
@@ -189,36 +190,91 @@ def _stream_page(conn):
       b"<title>PicoDeck</title><style>"
       b"body{font-family:sans-serif;max-width:500px;margin:20px auto;padding:0 12px;"
       b"background:#0d1117;color:#c9d1d9}"
-      b"h1,h2{color:#79c0ff}h2{font-size:16px;margin-top:20px}"
+      b"h1{color:#79c0ff}"
       b"label{display:block;margin-top:10px;color:#8b949e;font-size:13px}"
       b"select,input{background:#161b22;color:#c9d1d9;border:1px solid #30363d;"
       b"padding:6px;width:100%;margin-top:4px;font-size:15px;box-sizing:border-box}"
       b"button{background:#1f4e8a;color:#fff;border:none;padding:12px;"
-      b"cursor:pointer;width:100%;margin-top:16px;font-size:16px;border-radius:4px}"
-      b"hr{border-color:#30363d}small{color:#6e7681}"
+      b"cursor:pointer;width:100%;font-size:16px;border-radius:4px}"
+      b"details{border:1px solid #30363d;border-radius:6px;margin-top:12px}"
+      b"summary{background:#161b22;padding:10px 12px;cursor:pointer;color:#79c0ff;"
+      b"font-weight:bold;border-radius:6px;list-style:none}"
+      b"details[open]>summary{border-radius:6px 6px 0 0;border-bottom:1px solid #30363d}"
+      b".dp{padding:8px 12px 12px}"
+      b".sv{position:sticky;bottom:0;background:#0d1117;"
+      b"padding:6px 0;border-top:1px solid #21262d}"
+      b"hr{border-color:#30363d}small{color:#6e7681}")
+    # Extra CSS for combined Debug section (second chunk)
+    w(b".r4{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:4px 0}"
+      b".r5{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:4px 0}"
+      b".r3{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:4px 0}"
+      b".rl{color:#8b949e;font-size:12px;margin:8px 0 3px}"
+      b".rb{font-size:12px;padding:8px 2px;text-align:center}"
+      b"#pv{border:1px solid #30363d;border-radius:6px;overflow:hidden;margin-bottom:12px}"
+      b"#ph{background:#161b22;padding:5px 8px;display:flex;justify-content:space-between}"
+      b"#lt{color:#79c0ff;font-size:12px;font-family:monospace}"
+      b"#li{color:#6e7681;font-size:10px;font-family:monospace}"
+      b"#con{background:#0d1117;color:#00ff41;padding:8px;border-radius:4px;"
+      b"font-size:11px;max-height:180px;overflow-y:auto;white-space:pre-wrap;"
+      b"word-break:break-all;border:1px solid #21262d;font-family:monospace}"
       b"</style><script src=/js></script></head><body><h1>PicoDeck</h1>")
 
     wifi_str = "STA ({})".format(ip()) if mode == "sta" else "AP (PicoDeck / picodeck1)"
-    w("<small>WiFi: {}</small><hr><form method=POST action=/save>".format(wifi_str))
+    w("<small>WiFi: {}</small>".format(wifi_str))
 
-    buf = "<label>Profil</label><select name=__profile>"
+    w(b"<form method=POST action=/save>")
+
+    profile_label = state.profile_labels[state.current_profile]
+    w("<details open><summary>Buttons &mdash; {}</summary><div class=dp>".format(profile_label))
+
+    w(b"<input type=hidden name=__quick value=''>")
+    buf = ("<label>Profil</label><select name=__profile onchange="
+           "\"document.querySelector('[name=__quick]').value='1';this.form.submit()\">")
     for p in state.profile_order:
         sel = " selected" if p == state.current_profile else ""
         buf += '<option value="{}"{}>{}</option>'.format(p, sel, state.profile_labels[p])
-    buf += "</select><hr><table width=100%>"
+    buf += "</select>"
     w(buf)
 
     valid = sorted(_m.get_valid_actions())
+    builtin = set(state.default_button_profiles.keys())
+    custom_profiles = [p for p in state.profile_order if p not in builtin]
+    if custom_profiles:
+        w(b"<div style='margin-top:8px;padding-top:8px;border-top:1px solid #30363d'>")
+        for pname in custom_profiles:
+            w("<div style='display:flex;gap:6px;align-items:center;margin-top:6px'>"
+              "<input type=text name='__rename_{}' value='{}' style='flex:1'>"
+              "<button type=submit name='__delete_{}' value=1 class=bd "
+              "onclick=\"return confirm('Profil \\'{}\\'  l\\u00f6schen?')\">&#10005;</button>"
+              "</div>".format(pname, state.profile_labels[pname],
+                              pname, state.profile_labels[pname]))
+        w(b"</div>")
+
+    w(b"<table style='margin-top:8px'>")
     for btn in state.button_order:
         cur = state.button_actions[btn]
-        buf = "<tr><td>{}</td><td><select name='{}'>".format(state.button_pins[btn], btn)
+        cur_text = cur[5:] if cur.startswith("text:") else ""
+        cur_sel  = "" if cur.startswith("text:") else cur
+        buf = ("<tr><td>{}</td>"
+               "<td><select name='{}'>".format(state.button_pins[btn], btn))
         for a in valid:
-            sel = " selected" if a == cur else ""
+            sel = " selected" if a == cur_sel else ""
             buf += '<option value="{}"{}>{}</option>'.format(a, sel, _m.format_action_label(a))
-        buf += "</select></td></tr>"
+        buf += ("</select><input type=text name='__text_{}' value='{}' "
+                "placeholder='Text-Makro...' "
+                "style='margin-top:4px;font-size:13px'></td></tr>".format(btn, cur_text))
         w(buf)
+    w(b"</table>")
+    if len(state.profile_order) < state.MAX_PROFILES:
+        w(b"<div style='margin-top:10px;padding-top:10px;border-top:1px solid #30363d'>"
+          b"<label>Neues Profil</label>"
+          b"<div style='display:flex;gap:6px;margin-top:4px'>"
+          b"<input type=text name=__new_profile placeholder='Name...' style='flex:1'>"
+          b"<button type=submit style='flex:0;padding:0 16px'>+</button>"
+          b"</div></div>")
+    w(b"</div></details>")
 
-    w(b"</table><hr><h2>Einstellungen</h2>")
+    w(b"<details><summary>Einstellungen</summary><div class=dp>")
 
     def setting(lbl, name, pairs, cur):
         s = "<label>{}</label><select name={}>".format(lbl, name)
@@ -228,14 +284,21 @@ def _stream_page(conn):
         w(s + "</select>")
 
     setting("Bildschirmschoner", "__ss_timeout",
-            [(15,"15 Sek"),(30,"30 Sek"),(60,"1 Minute"),(300,"5 Minuten"),(9999,"Aus")],
+            [(9999,"Aus"),(15,"15 Sek"),(30,"30 Sek"),(60,"1 Min"),
+             (300,"5 Min"),(600,"10 Min"),(900,"15 Min"),(1800,"30 Min")],
             state.screensaver_timeout)
+    setting("Idle Modus", "__idle_mode",
+            [("dim","Nur Dimmen"),("screensaver","Screensaver")],
+            state.idle_mode)
+    setting("Dimm-Helligkeit", "__dim_brightness",
+            [(10,"10%"),(20,"20%"),(30,"30%"),(40,"40%"),(50,"50%")],
+            state.dim_brightness)
     setting("Helligkeit", "__brightness",
             [(10,"10%"),(20,"20%"),(30,"30%"),(40,"40%"),(50,"50%"),
              (60,"60%"),(70,"70%"),(80,"80%"),(90,"90%"),(100,"100%")],
             state.brightness)
     setting("Encoder Modus", "__enc_mode",
-            [("navigate","Navigieren"),("volume","Lautstaerke"),
+            [("navigate","Navigieren"),("volume","Lautst\xe4rke"),
              ("brightness","Helligkeit"),("mac_brightness","Mac Hellgk.")],
             state.encoder_mode)
     setting("Encoder Richtung", "__enc_dir",
@@ -250,24 +313,70 @@ def _stream_page(conn):
     setting("Men\xfc-Timeout", "__menu_timeout",
             [(0,"Aus"),(15,"15 Sek"),(30,"30 Sek"),(60,"1 Min"),(120,"2 Min")],
             state.menu_timeout)
+    setting("Theme", "__theme",
+            [("dark","GitHub Dark"),("dracula","Dracula"),
+             ("matrix","Matrix"),("amber","Amber")],
+            state.theme)
+    w(b"</div></details>")
 
-    w(b"<button type=submit>Speichern</button></form>"
-      b"<hr><h2>Display</h2>"
-      b"<div style='margin:0 auto;width:204px;background:#0d1117;"
-      b"border:1px solid #30363d;border-radius:6px;overflow:hidden'>"
-      b"<div style='background:#161b22;padding:5px 8px;display:flex;"
-      b"justify-content:space-between;align-items:center'>"
-      b"<span id=lt style='color:#79c0ff;font-size:12px;font-family:monospace'></span>"
-      b"<span id=li style='color:#6e7681;font-size:10px;font-family:monospace'></span>"
-      b"</div><div id=lr></div></div><hr>")
+    w(b"<div class=sv><button type=submit>Speichern</button></div>"
+      b"</form>")
 
-    w("<h2>WiFi Verbindung</h2><form method=POST action=/wifi>"
+    # === WIFI ===
+    w(b"<details><summary>WiFi Verbindung</summary><div class=dp>")
+    w("<form method=POST action=/wifi>"
       "<label>Heimnetz SSID</label>"
       "<input type=text name=ssid value='{}' autocomplete=off>"
-      "<label>Passwort (leer = unveraendert)</label>"
-      "<input type=password name=pass placeholder='********'>"
-      "<button type=submit>Verbinden &amp; speichern</button>"
-      "</form></body></html>".format(state.wifi_ssid or ""))
+      "<label>Passwort</label>"
+      "<input type=password name=pass placeholder='leer = unver\xe4ndert'>"
+      "<button type=submit style='margin-top:10px;width:100%'>"
+      "Verbinden &amp; speichern</button>"
+      "</form>".format(state.wifi_ssid or ""))
+    w(b"</div></details>")
+
+    # === DEBUG (Display Vorschau + Fernsteuerung + Konsole) ===
+    w(b"<details><summary>Debug</summary><div class=dp>")
+
+    w(b"<div id=pv>"
+      b"<div id=ph><span id=lt></span><span id=li></span></div>"
+      b"<div id=lr></div></div>")
+
+    w(b"<div class=rl>Navigation</div>"
+      b"<div class=r4>")
+    w(b"<button type=button onclick='sa(\"nav_back\")' class=rb>&#8592; Back</button>")
+    w(b"<button type=button onclick='sa(\"nav_up\")' class=rb>&#9650; Hoch</button>")
+    w(b"<button type=button onclick='sa(\"nav_down\")' class=rb>&#9660; Runter</button>")
+    w(b"<button type=button onclick='sa(\"nav_select\")' class=rb>&#10003; OK</button>")
+    w(b"</div>")
+
+    w(b"<div class=rl>Fx Tasten</div>"
+      b"<div class=r5>")
+    for btn in state.button_order:
+        cur = state.button_actions.get(btn, "")
+        if cur.startswith("text:"):
+            short = '"' + cur[5:8] + '.."'
+        else:
+            short = _m.format_action_label(cur)[:9] if cur else ""
+        w("<button type=button onclick='sa(\"btn_{}\")' class=rb>"
+          "<b>{}</b><small>{}</small></button>".format(btn, btn.upper(), short))
+    w(b"</div>")
+
+    w(b"<div class=rl>Medien</div>"
+      b"<div class=r3>")
+    w(b"<button type=button onclick='sa(\"previous_track\")' class=rb>&#9664;&#9664;</button>")
+    w(b"<button type=button onclick='sa(\"play_pause\")' class=rb>&#9654;&#9646;</button>")
+    w(b"<button type=button onclick='sa(\"next_track\")' class=rb>&#9654;&#9654;</button>")
+    w(b"<button type=button onclick='sa(\"volume_down\")' class=rb>Vol&#8722;</button>")
+    w(b"<button type=button onclick='sa(\"mute\")' class=rb>Mute</button>")
+    w(b"<button type=button onclick='sa(\"volume_up\")' class=rb>Vol+</button>")
+    w(b"</div>")
+
+    w(b"<hr><pre id=con></pre>")
+    w(b"<button type=button "
+      b"onclick='sa(\"__clear_log\");document.getElementById(\"con\").textContent=\"\"' "
+      b"style='margin-top:6px'>Konsole leeren</button>")
+
+    w(b"</div></details></body></html>")
 
 
 def _parse_body(req):
@@ -278,6 +387,7 @@ def _parse_body(req):
 
 def _handle(conn):
     import gc
+    import menus
     import persistence
     gc.collect()
     buf = bytearray(2048)
@@ -358,11 +468,60 @@ def _handle(conn):
             "document.getElementById('lr').innerHTML=h;"
             "}).catch(function(){});}"
             "setInterval(u,1000);u();"
+            "function sa(a){"
+            "fetch('/api/action',{method:'POST',"
+            "headers:{'Content-Type':'application/x-www-form-urlencoded'},"
+            "body:'action='+encodeURIComponent(a)})"
+            ".then(function(){setTimeout(function(){u();uc();},600);})"
+            ".catch(function(){});}"
+            "function uc(){"
+            "fetch('/console').then(function(r){return r.json();})"
+            ".then(function(d){"
+            "var el=document.getElementById('con');if(!el)return;"
+            "el.textContent=d.lines.join('\\n');"
+            "el.scrollTop=el.scrollHeight;"
+            "}).catch(function(){});}"
+            "setInterval(uc,3000);uc();"
         )
         enc = js.encode()
         conn.sendall(("HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\n"
                       "Content-Length: {}\r\nCache-Control: no-store\r\n"
                       "Connection: close\r\n\r\n").format(len(enc)).encode() + enc)
+
+    elif method == "GET" and path == "/console":
+        import console_log as _cl, json
+        data = json.dumps({"lines": _cl.get_lines()})
+        enc = data.encode()
+        conn.sendall(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                      "Content-Length: {}\r\nCache-Control: no-store\r\n"
+                      "Connection: close\r\n\r\n").format(len(enc)).encode() + enc)
+
+    elif method == "POST" and path == "/api/action":
+        body = _parse_body(req)
+        action = None
+        for pair in body.split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                if k == "action":
+                    action = _url_decode(v)
+                    break
+        if action:
+            if action == "__clear_log":
+                try:
+                    import console_log as _cl
+                    _cl.clear()
+                except Exception:
+                    pass
+            else:
+                _nav_map = {"nav_up": "up", "nav_down": "down",
+                            "nav_back": "back", "nav_select": "select"}
+                if action in _nav_map:
+                    state.remote_nav = _nav_map[action]
+                elif action.startswith("btn_") and action[4:] in state.button_order:
+                    state.remote_nav = action[4:]
+                else:
+                    state.remote_nav = action
+        conn.sendall(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
 
     elif method == "GET" and path == "/":
         gc.collect()
@@ -375,17 +534,42 @@ def _handle(conn):
         global needs_redraw
         body = _parse_body(req)
         if body:
+            valid_actions = menus.get_valid_actions()
+            snapshot = persistence.snapshot_state()
+            _builtin = set(state.default_button_profiles.keys())
             source_profile = state.current_profile
             new_profile = None
+            new_profile_label = ""
+            quick = False
+            do_delete = None
+            renames = {}
             for pair in body.split("&"):
                 if "=" not in pair:
                     continue
                 k, v = pair.split("=", 1)
                 v = _url_decode(v)
-                if k == "__profile":
+                if k == "__quick" and v == "1":
+                    quick = True
+                elif k == "__new_profile":
+                    new_profile_label = v.strip()
+                elif k == "__profile":
                     new_profile = v
+                elif k.startswith("__delete_"):
+                    pname = k[9:]
+                    if v == "1" and pname not in _builtin and pname in state.profile_order:
+                        do_delete = pname
+                elif k.startswith("__rename_"):
+                    pname = k[9:]
+                    lbl = v.strip()[:12]
+                    if pname not in _builtin and pname in state.profile_order and lbl:
+                        renames[pname] = lbl
                 elif k in state.button_order:
-                    state.button_profiles[source_profile][k] = v
+                    if v in valid_actions:
+                        state.button_profiles[source_profile][k] = v
+                elif k.startswith("__text_"):
+                    btn = k[7:]
+                    if btn in state.button_order and v.strip():
+                        state.button_profiles[source_profile][btn] = "text:" + v.strip()
                 elif k == "__ss_timeout":
                     try:
                         state.screensaver_timeout = int(v)
@@ -399,6 +583,14 @@ def _handle(conn):
                         _d.set_brightness(state.brightness)
                     except (ValueError, TypeError):
                         pass
+                elif k == "__dim_brightness":
+                    try:
+                        state.dim_brightness = max(10, min(50, int(v)))
+                    except (ValueError, TypeError):
+                        pass
+                elif k == "__idle_mode":
+                    if v in ("dim", "screensaver"):
+                        state.idle_mode = v
                 elif k == "__enc_mode":
                     if v in ("navigate", "volume", "brightness", "mac_brightness"):
                         state.encoder_mode = v
@@ -422,20 +614,47 @@ def _handle(conn):
                         state.menu_timeout = int(v)
                     except (ValueError, TypeError):
                         pass
+                elif k == "__theme":
+                    if v in ("dark", "dracula", "matrix", "amber"):
+                        import display as _d
+                        _d.set_theme(v)
+            if do_delete:
+                persistence.delete_profile(do_delete)
+                needs_redraw = True
+                conn.sendall(b"HTTP/1.1 302 Found\r\nLocation: /\r\nConnection: close\r\n\r\n")
+                return
+            for pname, lbl in renames.items():
+                if state.profile_labels.get(pname) != lbl:
+                    state.profile_labels[pname] = lbl
+                    needs_redraw = True
             if new_profile and new_profile in state.profile_order:
                 state.current_profile = new_profile
             state.button_actions = dict(state.button_profiles[state.current_profile])
+            if new_profile_label:
+                persistence.create_profile(new_profile_label)
+                needs_redraw = True
             save_err = None
             try:
+                import console_log as _log
                 persistence.save_button_actions()
                 needs_redraw = True
-                print("Saved. Profile:", state.current_profile)
+                _log.log("Gespeichert. Profil: " + state.current_profile)
             except Exception as e:
                 save_err = str(e)
-                print("Save error:", e)
+                persistence.restore_state(snapshot)
+                import display as _d
+                if state.theme != "dark":
+                    _d.set_theme(state.theme)
+                else:
+                    _d.set_theme("dark")
+                _d.set_brightness(state.brightness)
+                _d.set_inversion(state.display_inverted)
+                _log.log("Speicherfehler: " + str(e))
         else:
             save_err = None
-        if save_err:
+        if quick:
+            conn.sendall(b"HTTP/1.1 302 Found\r\nLocation: /\r\nConnection: close\r\n\r\n")
+        elif save_err:
             conn.sendall((
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
                 "Connection: close\r\n\r\n"
@@ -527,4 +746,8 @@ def poll():
     except OSError:
         pass
     except Exception as e:
-        print("poll error:", e)
+        try:
+            import console_log as _log
+            _log.log("poll error: " + str(e))
+        except Exception:
+            print("poll error:", e)

@@ -15,11 +15,14 @@ Keep new firmware logic in `code.py` unless the file becomes difficult to mainta
 There is no local build step. Development is a copy-to-device workflow.
 
 - `cp code.py /Volumes/CIRCUITPY/`: deploy the main script to the board.
+- `cp actions.py /Volumes/CIRCUITPY/`, `cp display.py /Volumes/CIRCUITPY/`, `cp persistence.py /Volumes/CIRCUITPY/`, etc.: deploy any changed firmware modules after editing them.
 - `cp -R lib /Volumes/CIRCUITPY/`: deploy bundled dependencies.
 - `screen /dev/tty.usbmodem* 115200`: open the CircuitPython serial console for logs and tracebacks.
 - `git status` and `git diff`: review firmware changes before deploy.
 
 Adjust the `CIRCUITPY` mount path for your machine.
+
+When code files are changed in this repo, do not stop at editing the local workspace. Copy every changed firmware file to the mounted `CIRCUITPY` device as part of completing the task, unless the user explicitly asks not to deploy.
 
 ## Coding Style & Naming Conventions
 Use Python with 4-space indentation and keep the existing style in `code.py`.

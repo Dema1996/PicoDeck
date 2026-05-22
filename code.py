@@ -1,3 +1,6 @@
+import console_log
+console_log.setup()
+
 import time
 import board
 import digitalio
@@ -94,6 +97,10 @@ def handle_encoder_button():
         state.encoder_button_pressed_at = now
         state.last_encoder_activity = now
     elif current_state and not state.last_encoder_button_state:
+        if state.ignore_next_encoder_release:
+            state.ignore_next_encoder_release = False
+            state.last_encoder_button_state = current_state
+            return
         press_duration = now - state.encoder_button_pressed_at
         state.last_encoder_activity = now
         if press_duration >= state.encoder_back_hold_time:
@@ -166,6 +173,42 @@ def run_action():
             display.draw_menu()
             return
         display.show_message("Gemappt auf", state.button_pins[item["button_name"]])
+        time.sleep(0.8)
+        display.draw_menu()
+        return
+
+    if action == "open_profile_detail":
+        state.current_profile_target = item["profile_name"]
+        state.menu_stack.append(state.current_menu)
+        state.current_menu = "profile_detail"
+        state.selected_index = 0
+        display.draw_menu()
+        return
+
+    if action == "delete_profile":
+        name = item["profile_name"]
+        label = state.profile_labels.get(name, name)
+        try:
+            persistence.delete_profile(name)
+        except (OSError, ValueError):
+            display.show_message("Fehler", "Nicht gel\xf6scht")
+            time.sleep(0.8)
+            display.draw_menu()
+            return
+        display.show_message("Gel\xf6scht", label)
+        time.sleep(0.8)
+        state.menu_stack.clear()
+        state.current_menu = "profiles"
+        state.selected_index = 0
+        display.draw_menu()
+        return
+
+    if action == "create_profile":
+        name = persistence.create_profile()
+        if name:
+            display.show_message("Erstellt", state.profile_labels[name])
+        else:
+            display.show_message("Max. Profile", "Limit erreicht")
         time.sleep(0.8)
         display.draw_menu()
         return
@@ -245,9 +288,15 @@ def handle_macro_button(button, button_name):
 # STARTUP
 # =========================
 
-boot_anim.play(2.5)
+boot_anim.play(1.5, side_task=sdcard.mount, task_label="SD Karte laden...")
+display.show_message("SD Karte", "OK" if sdcard.mounted else "Nicht verfugbar")
+time.sleep(0.8)
 persistence.load_button_actions()
-sdcard.mount()
+if state.theme != "dark":
+    display.set_theme(state.theme)
+display.set_brightness(state.brightness)
+if state.display_inverted:
+    display.set_inversion(True)
 display.show_message("Bluetooth", "Startet...")
 ble_hid.setup()
 ble_hid.start_advertising()
@@ -283,18 +332,40 @@ while True:
     handle_macro_button(btn_f4, "f4")
     handle_macro_button(btn_f5, "f5")
 
-    if screensaver.active:
+    if screensaver.active or screensaver.dimmed:
         if any_fn or any_enc or touch.read_position() is not None:
+            if any_enc:
+                state.ignore_next_encoder_release = True
             screensaver.dismiss()
-            while not encoder_sw.value:
-                time.sleep(0.01)
         else:
-            screensaver.update()
+            if screensaver.active:
+                screensaver.update()
     else:
         handle_encoder()
         handle_encoder_button()
         handle_touch()
+        if state.remote_nav is not None:
+            nav = state.remote_nav
+            state.remote_nav = None
+            state.last_activity = time.monotonic()
+            if nav == "up":
+                if state.current_menu != "dashboard":
+                    state.selected_index = (state.selected_index - 1) % len(menus.get_menu_items(state.current_menu))
+                    display.draw_menu()
+            elif nav == "down":
+                if state.current_menu != "dashboard":
+                    state.selected_index = (state.selected_index + 1) % len(menus.get_menu_items(state.current_menu))
+                    display.draw_menu()
+            elif nav == "back":
+                display.go_back()
+            elif nav == "select":
+                run_action()
+            elif nav in state.button_order:
+                persistence.trigger_button_action(nav)
+            else:
+                actions.execute_action(nav)
         display.update_menu_scroll()
+        display.update_overlay()
         if (state.encoder_mode != "navigate"
                 and time.monotonic() - state.last_encoder_activity > 15.0):
             state.encoder_mode = "navigate"
