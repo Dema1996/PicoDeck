@@ -4,10 +4,18 @@ menus = {
     "main": [
         {"label": "Medien",        "submenu": "media"},
         {"label": "Allgemein",     "submenu": "allgemein"},
+        {"label": "Navigation",    "submenu": "navigation"},
         {"label": "System",        "submenu": "system"},
         {"label": "Coding",        "submenu": "coding"},
         {"label": "Encoder",       "submenu": "encoder"},
         {"label": "Einstellungen", "submenu": "settings"},
+    ],
+    "navigation": [
+        {"label": "Nav Zur\xfcck",  "action": "nav_back"},
+        {"label": "Nav Hoch",       "action": "nav_up"},
+        {"label": "Nav Runter",     "action": "nav_down"},
+        {"label": "Nav OK",         "action": "nav_select"},
+        {"label": "Zur\xfcck",      "action": "back"},
     ],
     "allgemein": [
         {"label": "Undo",           "action": "undo"},
@@ -73,12 +81,22 @@ menus = {
         {"label": "Zur\xfcck",  "action": "back"},
     ],
     "display_settings": [
-        {"label": "Helligkeit",     "submenu": "brightness"},
-        {"label": "Screensaver",    "submenu": "screensaver"},
-        {"label": "Theme",          "submenu": "themes"},
-        {"label": "Invertieren",    "action":  "toggle_inversion"},
-        {"label": "Men\xfc-Timeout","submenu": "menu_timeout"},
-        {"label": "Zur\xfcck",      "action":  "back"},
+        {"label": "Helligkeit",       "submenu": "brightness"},
+        {"label": "Screensaver",      "submenu": "screensaver"},
+        {"label": "Theme",            "submenu": "themes"},
+        {"label": "Display Test",     "action":  "display_test"},
+        {"label": "Invertieren",      "action":  "toggle_inversion"},
+        {"label": "Ausrichtung",      "submenu": "rotation"},
+        {"label": "Men\xfc-Timeout",  "submenu": "menu_timeout"},
+        {"label": "Touch Kalib.",     "action":  "touch_calibrate"},
+        {"label": "Zur\xfcck",        "action":  "back"},
+    ],
+    "rotation": [
+        {"label": "Portrait 0\xb0",    "action": "rotation_0"},
+        {"label": "Landscape 90\xb0",  "action": "rotation_90"},
+        {"label": "Portrait 180\xb0",  "action": "rotation_180"},
+        {"label": "Landscape 270\xb0", "action": "rotation_270"},
+        {"label": "Zur\xfcck",         "action": "back"},
     ],
     "themes": [
         {"label": "GitHub Dark",    "action": "theme_dark"},
@@ -184,107 +202,116 @@ menus = {
 }
 
 
+_ACTION_LABELS = {
+    "mission_control":  "MissionCtrl",
+    "play_pause":       "PlayPause",
+    "stop":             "Stop",
+    "mute":             "Stummschalten",
+    "previous_track":   "Voriger Ttl",
+    "next_track":       "N\xe4chst. Ttl",
+    "volume_up":        "Lauter",
+    "volume_down":      "Leiser",
+    "spotlight":        "Spotlight",
+    "app_switcher":     "App-Wechsel",
+    "previous_app":     "Letzte App",
+    "lock_mac":         "Mac Sperren",
+    "show_desktop":     "Desktop",
+    "open_vscode":      "VSCode",
+    "command_palette":  "CmdPalette",
+    "toggle_terminal":  "Terminal",
+    "format_document":  "Format Doc",
+    "screenshot":       "Screenshot",
+    "new_terminal":     "New Terminal",
+    "split_editor":     "Split Editor",
+    "close_window":     "Fenster zu",
+    "encoder_navigate":       "Enc Nav",
+    "encoder_volume":         "Enc Vol",
+    "encoder_brightness":     "Enc Bright",
+    "encoder_mac_brightness": "Enc MacBrt",
+    "mac_brightness_up":      "Mac Heller",
+    "mac_brightness_down":    "Mac Dunkler",
+    "open_whisper":           "OpenWhisper",
+    "wifi_status":            "WiFi Status",
+    "wifi_start_ap":          "AP Modus",
+    "toggle_wifi":            "WiFi",
+    "toggle_encoder_dir":     "Enc Richt.",
+    "encoder_speed_slow":     "Enc Langsam",
+    "encoder_speed_normal":   "Enc Normal",
+    "encoder_speed_fast":     "Enc Schnell",
+    "hold_time_05":           "Hold 0.5s",
+    "hold_time_10":           "Hold 1.0s",
+    "hold_time_20":           "Hold 2.0s",
+    "bt_status":              "BT Status",
+    "bt_toggle":              "BT an/aus",
+    "sd_status":              "SD Status",
+    "sd_reload":              "SD Reload",
+    "ss_timeout_15":          "Schoner 15s",
+    "ss_timeout_30":          "Schoner 30s",
+    "ss_timeout_60":          "Schoner 1m",
+    "ss_timeout_300":         "Schoner 5m",
+    "ss_timeout_600":         "Schoner 10m",
+    "ss_timeout_900":         "Schoner 15m",
+    "ss_timeout_1800":        "Schoner 30m",
+    "ss_timeout_off":         "Schoner Aus",
+    "idle_mode_dim":          "Nur Dimmen",
+    "idle_mode_screensaver":  "Screensaver",
+    "dim_brightness_10":      "Dimm 10%",
+    "dim_brightness_20":      "Dimm 20%",
+    "dim_brightness_30":      "Dimm 30%",
+    "dim_brightness_40":      "Dimm 40%",
+    "dim_brightness_50":      "Dimm 50%",
+    "toggle_inversion":       "Invertieren",
+    "display_test":           "Display Test",
+    "touch_calibrate":        "Touch Kalib.",
+    "nav_back":               "Nav Zur\xfcck",
+    "nav_up":                 "Nav Hoch",
+    "nav_down":               "Nav Runter",
+    "nav_select":             "Nav OK",
+    "rotation_0":             "Portrait 0\xb0",
+    "rotation_90":            "Landscape 90\xb0",
+    "rotation_180":           "Portrait 180\xb0",
+    "rotation_270":           "Landscape 270\xb0",
+    "undo":             "Undo",
+    "redo":             "Redo",
+    "copy":             "Kopieren",
+    "cut":              "Ausschneiden",
+    "paste":            "Einf\xfcgen",
+    "select_all":       "Alles whl.",
+    "save":             "Speichern",
+    "find":             "Suchen",
+    "zoom_in":          "Zoom +",
+    "zoom_out":         "Zoom -",
+    "new_tab":          "Neuer Tab",
+    "close_tab":        "Tab schlie\xdfen",
+    "prev_tab":         "Vorher. Tab",
+    "next_tab":         "N\xe4chst. Tab",
+    "reload":           "Neu laden",
+    "full_screen":      "Vollbild",
+    "minimize":         "Minimieren",
+    "hide_window":      "Verstecken",
+    "emoji_picker":     "Emojis",
+    "vscode_go_file":   "Go to File",
+    "vscode_go_line":   "Go to Line",
+    "vscode_rename":    "Rename",
+    "vscode_comment":   "Comment",
+    "vscode_explorer":  "Explorer",
+    "vscode_git":       "Git",
+    "vscode_problems":  "Probleme",
+    "vscode_run":       "Run",
+    "vscode_fold":      "Fold",
+    "vscode_unfold":    "Unfold",
+    "vscode_sidebar":   "Sidebar",
+    "theme_dark":       "GitHub Dark",
+    "theme_dracula":    "Dracula",
+    "theme_matrix":     "Matrix",
+    "theme_amber":      "Amber",
+    "reset_button_defaults": "Reset All",
+}
+
+
 def format_action_label(action):
-    labels = {
-        "mission_control":  "MissionCtrl",
-        "play_pause":       "PlayPause",
-        "stop":             "Stop",
-        "mute":             "Stummschalten",
-        "previous_track":   "Voriger Ttl",
-        "next_track":       "N\xe4chst. Ttl",
-        "volume_up":        "Lauter",
-        "volume_down":      "Leiser",
-        "spotlight":        "Spotlight",
-        "app_switcher":     "App-Wechsel",
-        "previous_app":     "Letzte App",
-        "lock_mac":         "Mac Sperren",
-        "show_desktop":     "Desktop",
-        "open_vscode":      "VSCode",
-        "command_palette":  "CmdPalette",
-        "toggle_terminal":  "Terminal",
-        "format_document":  "Format Doc",
-        "screenshot":       "Screenshot",
-        "new_terminal":     "New Terminal",
-        "split_editor":     "Split Editor",
-        "close_window":     "Fenster zu",
-        "encoder_navigate":       "Enc Nav",
-        "encoder_volume":         "Enc Vol",
-        "encoder_brightness":     "Enc Bright",
-        "encoder_mac_brightness": "Enc MacBrt",
-        "mac_brightness_up":      "Mac Heller",
-        "mac_brightness_down":    "Mac Dunkler",
-        "open_whisper":           "OpenWhisper",
-        "wifi_status":            "WiFi Status",
-        "wifi_start_ap":          "AP Modus",
-        "toggle_wifi":            "WiFi",
-        "toggle_encoder_dir":     "Enc Richt.",
-        "encoder_speed_slow":     "Enc Langsam",
-        "encoder_speed_normal":   "Enc Normal",
-        "encoder_speed_fast":     "Enc Schnell",
-        "hold_time_05":           "Hold 0.5s",
-        "hold_time_10":           "Hold 1.0s",
-        "hold_time_20":           "Hold 2.0s",
-        "bt_status":              "BT Status",
-        "bt_toggle":              "BT an/aus",
-        "sd_status":              "SD Status",
-        "sd_reload":              "SD Reload",
-        "ss_timeout_15":          "Schoner 15s",
-        "ss_timeout_30":          "Schoner 30s",
-        "ss_timeout_60":          "Schoner 1m",
-        "ss_timeout_300":         "Schoner 5m",
-        "ss_timeout_600":         "Schoner 10m",
-        "ss_timeout_900":         "Schoner 15m",
-        "ss_timeout_1800":        "Schoner 30m",
-        "ss_timeout_off":         "Schoner Aus",
-        "idle_mode_dim":          "Nur Dimmen",
-        "idle_mode_screensaver":  "Screensaver",
-        "dim_brightness_10":      "Dimm 10%",
-        "dim_brightness_20":      "Dimm 20%",
-        "dim_brightness_30":      "Dimm 30%",
-        "dim_brightness_40":      "Dimm 40%",
-        "dim_brightness_50":      "Dimm 50%",
-        "toggle_inversion":       "Invertieren",
-        # editing
-        "undo":             "Undo",
-        "redo":             "Redo",
-        "copy":             "Kopieren",
-        "cut":              "Ausschneiden",
-        "paste":            "Einf\xfcgen",
-        "select_all":       "Alles whl.",
-        "save":             "Speichern",
-        "find":             "Suchen",
-        "zoom_in":          "Zoom +",
-        "zoom_out":         "Zoom -",
-        # browser / tabs
-        "new_tab":          "Neuer Tab",
-        "close_tab":        "Tab schlie\xdfen",
-        "prev_tab":         "Vorher. Tab",
-        "next_tab":         "N\xe4chst. Tab",
-        "reload":           "Neu laden",
-        # system
-        "full_screen":      "Vollbild",
-        "minimize":         "Minimieren",
-        "hide_window":      "Verstecken",
-        "emoji_picker":     "Emojis",
-        # VSCode
-        "vscode_go_file":   "Go to File",
-        "vscode_go_line":   "Go to Line",
-        "vscode_rename":    "Rename",
-        "vscode_comment":   "Comment",
-        "vscode_explorer":  "Explorer",
-        "vscode_git":       "Git",
-        "vscode_problems":  "Probleme",
-        "vscode_run":       "Run",
-        "vscode_fold":      "Fold",
-        "vscode_unfold":    "Unfold",
-        "vscode_sidebar":   "Sidebar",
-    }
-    _theme_labels = {
-        "theme_dark": "GitHub Dark", "theme_dracula": "Dracula",
-        "theme_matrix": "Matrix",    "theme_amber": "Amber",
-    }
-    if action in _theme_labels:
-        return _theme_labels[action]
+    if action in _ACTION_LABELS:
+        return _ACTION_LABELS[action]
     if action.startswith("text:"):
         preview = action[5:][:10]
         return "Text: " + preview
@@ -296,7 +323,7 @@ def format_action_label(action):
     if action.startswith("menu_timeout_"):
         suffix = action.split("_")[2]
         return "Men\xfc " + ("Aus" if suffix == "off" else suffix + "s")
-    return labels.get(action, action[:10])
+    return action[:10]
 
 
 def get_assignment_target(item):
@@ -323,6 +350,7 @@ def get_menu_header(menu_name):
         "encoder_speed": "ENC SPEED",
         "hold_time":     "HOLD TIME",
         "display_settings": "BILDSCHIRM",
+        "rotation":          "AUSRICHTUNG",
         "brightness":    "HELLIGKEIT",
         "screensaver":   "SCREENSAVER",
         "themes":        "THEME",
@@ -397,6 +425,21 @@ def get_button_detail_menu():
     return items
 
 
+def get_rotation_menu():
+    options = [
+        (0,   "Portrait 0\xb0"),
+        (90,  "Landscape 90\xb0"),
+        (180, "Portrait 180\xb0"),
+        (270, "Landscape 270\xb0"),
+    ]
+    items = []
+    for deg, lbl in options:
+        marker = "* " if deg == state.display_rotation else "  "
+        items.append({"label": marker + lbl, "action": "rotation_{}".format(deg)})
+    items.append({"label": "Zur\xfcck", "action": "back"})
+    return items
+
+
 def get_brightness_menu():
     items = []
     for level in range(10, 110, 10):
@@ -425,6 +468,8 @@ def get_dashboard_items():
 def get_menu_items(menu_name):
     if menu_name == "dashboard":
         return get_dashboard_items()
+    if menu_name == "rotation":
+        return get_rotation_menu()
     if menu_name == "brightness":
         return get_brightness_menu()
     if menu_name == "dim_brightness":

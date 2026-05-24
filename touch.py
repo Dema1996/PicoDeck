@@ -1,5 +1,6 @@
 import board
 import digitalio
+import state
 from display import spi
 
 # Calibration: CMD_X (0xD0) is the physical vertical axis on this display,
@@ -10,10 +11,12 @@ _X_MIN = 3564
 _X_MAX = 515
 _Y_MIN = 3760
 _Y_MAX = 538
+# Always the physical (portrait) panel dimensions — used for raw→pixel mapping.
 _W = 240
 _H = 320
 
 _TOUCH_Z_THRESHOLD = 200  # Z1 value above this = screen is pressed
+
 
 _cs = digitalio.DigitalInOut(board.GP17)
 _cs.direction = digitalio.Direction.OUTPUT
@@ -44,11 +47,41 @@ def _clamp(v, lo, hi):
 
 
 def read_position():
-    """Returns (x, y) in screen coordinates if touched, else None."""
+    """Returns (x, y) in screen coordinates (rotation-adjusted) if touched, else None."""
+    pos = read_position_with_raw()
+    return None if pos is None else pos[0]
+
+
+def read_position_with_raw():
+    """Returns ((x, y), (raw_cmd_y, raw_cmd_x)) if touched, else None."""
     if _read_raw(_CMD_Z1) < _TOUCH_Z_THRESHOLD:
         return None
-    raw_horiz = _read_raw(_CMD_Y)  # CMD_Y = physical horizontal = screen X
-    raw_vert  = _read_raw(_CMD_X)  # CMD_X = physical vertical  = screen Y
-    x = int((raw_horiz - _X_MIN) * _W / (_X_MAX - _X_MIN))
-    y = int((raw_vert  - _Y_MIN) * _H / (_Y_MAX - _Y_MIN))
-    return _clamp(x, 0, _W - 1), _clamp(y, 0, _H - 1)
+    raw_horiz = _read_raw(_CMD_Y)  # CMD_Y = physical horizontal = portrait screen X
+    raw_vert  = _read_raw(_CMD_X)  # CMD_X = physical vertical  = portrait screen Y
+    x = _clamp(int((raw_horiz - _X_MIN) * _W / (_X_MAX - _X_MIN)), 0, _W - 1)
+    y = _clamp(int((raw_vert  - _Y_MIN) * _H / (_Y_MAX - _Y_MIN)), 0, _H - 1)
+    # Transform portrait pixel coords to the rotated screen coordinate space.
+    rot = state.display_rotation
+    if rot == 90:
+        return (_clamp(_H - 1 - y, 0, _H - 1), _clamp(x, 0, _W - 1)), (raw_horiz, raw_vert)
+    if rot == 180:
+        return (_clamp(_W - 1 - x, 0, _W - 1), _clamp(_H - 1 - y, 0, _H - 1)), (raw_horiz, raw_vert)
+    if rot == 270:
+        return (_clamp(y, 0, _H - 1), _clamp(_W - 1 - x, 0, _W - 1)), (raw_horiz, raw_vert)
+    return (x, y), (raw_horiz, raw_vert)
+
+
+def read_raw_position():
+    """Returns (raw_cmd_y, raw_cmd_x) if touched, else None. Used for calibration."""
+    if _read_raw(_CMD_Z1) < _TOUCH_Z_THRESHOLD:
+        return None
+    return _read_raw(_CMD_Y), _read_raw(_CMD_X)
+
+
+def apply_calibration(x_min, x_max, y_min, y_max):
+    """Update calibration constants at runtime."""
+    global _X_MIN, _X_MAX, _Y_MIN, _Y_MAX
+    _X_MIN = x_min
+    _X_MAX = x_max
+    _Y_MIN = y_min
+    _Y_MAX = y_max

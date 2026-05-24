@@ -25,8 +25,16 @@ _SCROLL_STEP   = 0.35  # seconds per character scroll
 
 
 def _time_str():
+    if not state.ntp_synced:
+        return "--:--"
     t = time.localtime()
-    return "{:02d}:{:02d}".format(t.tm_hour, t.tm_min)
+    src = {
+        "host": "HST",
+        "ntp_udp": "NTP",
+        "ntp_http": "WEB",
+        "unsynced": "---",
+    }.get(state.time_sync_source, "---")
+    return "{:02d}:{:02d} {}".format(t.tm_hour, t.tm_min, src)
 
 
 def _date_str():

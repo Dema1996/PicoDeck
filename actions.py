@@ -10,6 +10,7 @@ from adafruit_hid.consumer_control_code import ConsumerControlCode
 import state
 import menus
 import display
+import touch
 import wifi_server
 import ble_hid
 import sdcard
@@ -113,9 +114,72 @@ def send_media(consumer_code):
     ble_hid.send_consumer(consumer_code)
 
 
+def _wait_raw_tap():
+    """Block until touch press + release. Returns median (raw_cmd_y, raw_cmd_x)."""
+    while touch.read_raw_position() is None:
+        time.sleep(0.02)
+    samples_y = []
+    samples_x = []
+    while True:
+        r = touch.read_raw_position()
+        if r is None:
+            break
+        samples_y.append(r[0])
+        samples_x.append(r[1])
+        time.sleep(0.02)
+    samples_y.sort()
+    samples_x.sort()
+    mid = len(samples_y) // 2
+    time.sleep(0.3)
+    return samples_y[mid], samples_x[mid]
+
+
+def run_touch_calibration():
+    MARGIN = 20
+    W, H = 240, 320
+
+    # 4 corners: (label, screen_x, screen_y)
+    steps = [
+        ("Oben Links",    MARGIN,      MARGIN),
+        ("Oben Rechts",   W - MARGIN,  MARGIN),
+        ("Unten Links",   MARGIN,      H - MARGIN),
+        ("Unten Rechts",  W - MARGIN,  H - MARGIN),
+    ]
+    results = []
+    for i, (name, sx, sy) in enumerate(steps):
+        display.show_message("{}/4  Tippe:".format(i + 1), name)
+        ry, rx = _wait_raw_tap()
+        results.append((sx, sy, ry, rx))
+
+    # Average the two left-edge and two right-edge CMD_Y readings → X axis
+    left_ry  = (results[0][2] + results[2][2]) // 2   # oben-links + unten-links
+    right_ry = (results[1][2] + results[3][2]) // 2   # oben-rechts + unten-rechts
+    # Average the two top-edge and two bottom-edge CMD_X readings → Y axis
+    top_rx   = (results[0][3] + results[1][3]) // 2   # oben-links + oben-rechts
+    bot_rx   = (results[2][3] + results[3][3]) // 2   # unten-links + unten-rechts
+
+    # Extrapolate to screen edges (compensate for MARGIN offset)
+    ry_range = right_ry - left_ry
+    rx_range = bot_rx   - top_rx
+    margin_ratio_x = MARGIN / (W - 2 * MARGIN)
+    margin_ratio_y = MARGIN / (H - 2 * MARGIN)
+    x_min = int(left_ry - ry_range * margin_ratio_x)
+    x_max = int(right_ry + ry_range * margin_ratio_x)
+    y_min = int(top_rx  - rx_range * margin_ratio_y)
+    y_max = int(bot_rx  + rx_range * margin_ratio_y)
+
+    state.touch_cal = (x_min, x_max, y_min, y_max)
+    touch.apply_calibration(x_min, x_max, y_min, y_max)
+    _save_settings()
+    display.show_message("Kalibriert", "OK")
+    time.sleep(1.5)
+    display.draw_menu()
+
+
 def execute_action(action):
-    display.show_message("Action", menus.format_action_label(action))
-    time.sleep(0.2)
+    if action not in ("nav_back", "nav_up", "nav_down", "nav_select"):
+        display.show_message("Action", menus.format_action_label(action))
+        time.sleep(0.2)
     if action.startswith("text:"):
         text = action[5:]
         keyboard_layout.write(text)
@@ -339,6 +403,27 @@ def execute_action(action):
         _save_settings()
         display.show_message("Invertierung", "Ein" if state.display_inverted else "Aus")
         time.sleep(0.6)
+    elif action.startswith("rotation_"):
+        try:
+            rot = int(action.split("_")[1])
+            if rot in (0, 90, 180, 270):
+                state.display_rotation = rot
+                state.needs_touch_calibration = True
+                _save_settings()
+                display.show_message("Ausrichtung", str(rot) + "\xb0 - Neustart")
+                time.sleep(1.0)
+                import supervisor as _sv
+                _sv.reload()
+        except (ValueError, IndexError):
+            pass
+        return
+    elif action == "touch_calibrate":
+        run_touch_calibration()
+        return
+    elif action == "display_test":
+        state.display_test_mode = True
+        display.start_display_test()
+        return
     elif action == "menu_timeout_off":
         state.menu_timeout = 0
         _save_settings()
@@ -352,6 +437,9 @@ def execute_action(action):
             time.sleep(0.6)
         except (ValueError, IndexError):
             pass
+    elif action in ("nav_back", "nav_up", "nav_down", "nav_select"):
+        state.remote_nav = action[4:]  # strip "nav_" → "back"/"up"/"down"/"select"
+        return
     time.sleep(0.3)
     display.draw_menu()
 

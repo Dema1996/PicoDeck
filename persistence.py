@@ -8,6 +8,12 @@ import display
 import actions
 
 
+def _clean_wifi_value(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _default_profile_mapping(profile_name):
     return dict(state.default_button_profiles.get(
         profile_name, state.default_button_profiles["default"]))
@@ -36,7 +42,10 @@ def snapshot_state():
         "encoder_threshold": state.encoder_threshold,
         "button_assign_hold_time": state.button_assign_hold_time,
         "display_inverted": state.display_inverted,
+        "display_rotation": state.display_rotation,
+        "needs_touch_calibration": state.needs_touch_calibration,
         "menu_timeout": state.menu_timeout,
+        "touch_cal": list(state.touch_cal) if state.touch_cal else None,
     }
 
 
@@ -60,7 +69,10 @@ def restore_state(snapshot):
     state.encoder_threshold = snapshot["encoder_threshold"]
     state.button_assign_hold_time = snapshot["button_assign_hold_time"]
     state.display_inverted = snapshot["display_inverted"]
+    state.display_rotation = int(snapshot.get("display_rotation", 0))
+    state.needs_touch_calibration = bool(snapshot.get("needs_touch_calibration", False))
     state.menu_timeout = snapshot["menu_timeout"]
+    state.touch_cal = snapshot.get("touch_cal")
 
 
 def _persist_or_rollback(snapshot):
@@ -134,6 +146,13 @@ def load_button_actions():
             state.encoder_mode = saved_encoder_mode
         state.encoder_reversed = bool(settings.get("encoder_reversed", state.encoder_reversed))
         state.display_inverted = bool(settings.get("display_inverted", state.display_inverted))
+        saved_rot = settings.get("display_rotation", 0)
+        if saved_rot in (0, 90, 180, 270):
+            state.display_rotation = int(saved_rot)
+        state.needs_touch_calibration = bool(settings.get("needs_touch_calibration", False))
+        raw_cal = settings.get("touch_cal")
+        if isinstance(raw_cal, list) and len(raw_cal) == 4:
+            state.touch_cal = tuple(int(v) for v in raw_cal)
     except (OSError, ValueError):
         pass
 
@@ -142,9 +161,8 @@ def load_button_actions():
 
 def save_wifi_config(ssid, password):
     snapshot = snapshot_state()
-    state.wifi_ssid = ssid
-    if password:
-        state.wifi_password = password
+    state.wifi_ssid = _clean_wifi_value(ssid)
+    state.wifi_password = _clean_wifi_value(password)
     _persist_or_rollback(snapshot)
 
 
@@ -170,7 +188,10 @@ def save_button_actions():
             "encoder_threshold": state.encoder_threshold,
             "button_assign_hold_time": state.button_assign_hold_time,
             "display_inverted": state.display_inverted,
+            "display_rotation": state.display_rotation,
+            "needs_touch_calibration": state.needs_touch_calibration,
             "menu_timeout": state.menu_timeout,
+            "touch_cal": list(state.touch_cal) if state.touch_cal else None,
         },
     }).encode("utf-8")
     if len(serialized) >= state.nvm_size:
@@ -190,6 +211,14 @@ def save_action_to_button(button_name, action):
     snapshot = snapshot_state()
     state.button_actions[button_name] = action
     state.button_profiles[state.current_profile][button_name] = action
+    _persist_or_rollback(snapshot)
+
+
+def save_actions_to_buttons(mapping):
+    snapshot = snapshot_state()
+    for button_name, action in mapping.items():
+        state.button_actions[button_name] = action
+        state.button_profiles[state.current_profile][button_name] = action
     _persist_or_rollback(snapshot)
 
 

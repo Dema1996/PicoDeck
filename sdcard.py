@@ -7,6 +7,7 @@ import console_log
 from adafruit_sdcard import SDCard as _SDCard
 
 MOUNT_POINT = "/sd"
+_SD_BAUDRATE = 16_000_000
 mounted = False
 last_error = ""
 _sd_obj = None
@@ -40,11 +41,12 @@ def mount():
         if attempt:
             time.sleep(1.0)
         try:
-            sd = _SDCard(_spi, _cs)
+            sd = _SDCard(_spi, _cs, baudrate=_SD_BAUDRATE)
             vfs = storage.VfsFat(sd)
             storage.mount(vfs, MOUNT_POINT)
             _sd_obj = sd
             mounted = True
+            console_log.log("SD mounted @{}Hz".format(_SD_BAUDRATE))
             return True
         except Exception as e:
             last_error = str(e)

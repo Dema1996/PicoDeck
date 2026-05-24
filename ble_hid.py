@@ -19,7 +19,7 @@ _prev_connected = False
 
 
 def setup():
-    global _ble, _kbd, _layout, _cc, _adv, _setup_ok, active
+    global _ble, _kbd, _layout, _cc, _adv, _setup_ok, active, connected
     try:
         _ble = BLERadio()
         _ble.name = "PicoDeck"
@@ -37,6 +37,7 @@ def setup():
         print("BLE setup failed:", e)
         _setup_ok = False
         active    = False
+        connected = False
 
 
 def disable():
@@ -69,6 +70,10 @@ def status_str():
     if connected:
         return "Verbunden"
     return "Bereit"
+
+
+def available():
+    return _setup_ok
 
 
 def start_advertising():

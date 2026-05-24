@@ -1,6 +1,6 @@
 # PicoDeck
 
-DIY-Macro-Pad auf Basis eines Raspberry Pi Pico 2 W mit 2,4" TFT-Touchdisplay, 5 Hardware-Buttons und einem Rotary Encoder. Steuert macOS per USB-HID und bietet ein eingebettetes Web-UI über WiFi.
+DIY-Macro-Pad auf Basis eines Raspberry Pi Pico 2 W mit 2,4" TFT-Touchdisplay, 6 Hardware-Buttons und einem Rotary Encoder. Steuert macOS per USB-HID und bietet ein eingebettetes Web-UI über WiFi.
 
 ## Hardware
 
@@ -9,7 +9,7 @@ DIY-Macro-Pad auf Basis eines Raspberry Pi Pico 2 W mit 2,4" TFT-Touchdisplay, 5
 | Controller | Raspberry Pi Pico 2 W (RP2350, CYW43439) |
 | Display | AZDelivery 2,4" ILI9341 SPI, 240×320 px, Portrait |
 | Touch | XPT2046 (auf gleichem Board wie Display) |
-| Buttons | 5× taktiler Taster (INPUT\_PULLUP, gedrückt = LOW) |
+| Buttons | 6× taktiler Taster (INPUT\_PULLUP, gedrückt = LOW) |
 | Encoder | Rotary Encoder mit Push-Button (KY-040 o.ä.) |
 | SD-Karte | microSD via SPI (optional) |
 
@@ -19,11 +19,12 @@ DIY-Macro-Pad auf Basis eines Raspberry Pi Pico 2 W mit 2,4" TFT-Touchdisplay, 5
 |---|---|
 | TFT SCK / MOSI / MISO | GP2 / GP3 / GP4 |
 | TFT CS / D/C / RESET | GP5 / GP6 / GP7 |
-| btn\_back / btn\_up / btn\_down / btn\_select | GP8 – GP11 |
+| F1 / F2 / F3 / F4 | GP8 / GP9 / GP10 / GP11 |
 | Encoder CLK / DT / SW | GP12 / GP13 / GP14 |
 | TFT Backlight (PWM) | GP15 |
-| btn\_favorite | GP16 |
+| F5 | GP16 |
 | Touch CS / IRQ | GP17 / GP18 |
+| F6 | GP19 |
 | SD CS | GP22 |
 
 > **Touch-Achsen-Quirk:** Der XPT2046 auf diesem Board hat vertauscht gemeldete Achsen — CMD\_X (0xD0) ist physisch die Y-Achse. `touch.py` kompensiert das.
@@ -38,7 +39,7 @@ DIY-Macro-Pad auf Basis eines Raspberry Pi Pico 2 W mit 2,4" TFT-Touchdisplay, 5
 - Persistenz in `microcontroller.nvm` (1 KB, JSON-Schema)
 
 ### Eingabe
-- 5 Hardware-Buttons: kurzer Druck → Aktion, langer Druck (≥ 1 s) → aktuellen Menüpunkt auf Button mappen
+- 6 Hardware-Buttons (F1–F6): kurzer Druck → Aktion, langer Druck (≥ 1 s) → aktuellen Menüpunkt auf Button mappen
 - Rotary Encoder: Modi Navigate / Lautstärke / Helligkeit / Mac-Helligkeit
 - Langer Encoder-Druck: zurück / Modus verlassen
 - Touchscreen-Navigation
@@ -105,7 +106,7 @@ Der Pico startet automatisch neu wenn `code.py` geändert wird.
 {
   "current_profile": "default",
   "profiles": {
-    "default":  { "back": "…", "up": "…", "down": "…", "select": "…", "favorite": "…" },
+    "default":  { "f1": "…", "f2": "…", "f3": "…", "f4": "…", "f5": "…", "f6": "…" },
     "coding":   { … },
     "media":    { … }
   },

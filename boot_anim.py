@@ -1,77 +1,74 @@
 import displayio
 import terminalio
 from adafruit_display_text import label
-import time
 import display
 
-_W, _H = 240, 320
 _CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+-=#@"
-_N = 20  # columns at scale=1 → dense rain
 
 
-def play(duration=2.5, side_task=None, task_label="Laden..."):
-    """Play boot animation. If side_task is given it runs after the first rendered frame
-    so the animation is visible while the task blocks (e.g. sdcard.mount)."""
-    import random
+class BootAnim:
+    """Matrix rain boot animation that stays active during the entire startup."""
 
-    grp = displayio.Group()
+    def __init__(self):
+        import random
+        from display import _W, _H
 
-    bg_bm = displayio.Bitmap(_W, _H, 1)
-    bg_pal = displayio.Palette(1)
-    bg_pal[0] = 0x000000
-    grp.append(displayio.TileGrid(bg_bm, pixel_shader=bg_pal))
+        _N = _W // 16
+        self._N = _N
+        self._H = _H
 
-    col_x = [i * (_W // _N) for i in range(_N)]
-    speeds = [random.randint(10, 24) for _ in range(_N)]
-    ys = [random.randint(-_H, 0) for _ in range(_N)]
+        grp = displayio.Group()
 
-    streams = []
-    for i in range(_N):
-        lbl = label.Label(terminalio.FONT, text="@", color=0x00ff41, scale=1)
-        lbl.anchor_point = (0.0, 0.0)
-        lbl.anchored_position = (col_x[i], ys[i])
-        grp.append(lbl)
-        streams.append(lbl)
+        bg_bm = displayio.Bitmap(_W, _H, 1)
+        bg_pal = displayio.Palette(1)
+        bg_pal[0] = 0x000000
+        grp.append(displayio.TileGrid(bg_bm, pixel_shader=bg_pal))
 
-    # Solid background_color so rain chars cannot bleed through the text
-    title_lbl = label.Label(terminalio.FONT, text="PicoDeck", color=0xffd700,
-                            scale=3, background_color=0x000000)
-    title_lbl.anchor_point = (0.5, 0.5)
-    title_lbl.anchored_position = (_W // 2, _H // 2 - 24)
-    grp.append(title_lbl)
+        col_x = [i * (_W // _N) for i in range(_N)]
+        self._speeds = [random.randint(10, 24) for _ in range(_N)]
+        self._ys = [random.randint(-_H, 0) for _ in range(_N)]
 
-    sub_lbl = label.Label(terminalio.FONT, text="Startet...", color=0x00cc33,
-                          scale=2, background_color=0x000000)
-    sub_lbl.anchor_point = (0.5, 0.5)
-    sub_lbl.anchored_position = (_W // 2, _H // 2 + 44)
-    grp.append(sub_lbl)
-
-    display.tft.root_group = grp
-
-    # Render one frame so animation is on screen before side_task blocks
-    for i in range(_N):
-        ys[i] += speeds[i]
-        if ys[i] > _H:
-            ys[i] = random.randint(-150, -20)
-            speeds[i] = random.randint(10, 24)
-        streams[i].anchored_position = (col_x[i], ys[i])
-        streams[i].text = _CHARS[i % len(_CHARS)]
-    display.tft.refresh()
-
-    if side_task is not None:
-        sub_lbl.text = task_label
-        display.tft.refresh()
-        side_task()
-
-    start = time.monotonic()
-    tick = 1
-    while time.monotonic() - start < duration:
+        self._streams = []
         for i in range(_N):
-            ys[i] += speeds[i]
-            if ys[i] > _H:
-                ys[i] = random.randint(-150, -20)
-                speeds[i] = random.randint(10, 24)
-            streams[i].anchored_position = (col_x[i], ys[i])
-            streams[i].text = _CHARS[(tick + i * 7) % len(_CHARS)]
-        tick += 1
+            lbl = label.Label(terminalio.FONT, text="@", color=0x00ff41, scale=1)
+            lbl.anchor_point = (0.0, 0.0)
+            lbl.anchored_position = (col_x[i], self._ys[i])
+            grp.append(lbl)
+            self._streams.append(lbl)
+
+        title_lbl = label.Label(terminalio.FONT, text="PicoDeck", color=0xffd700,
+                                scale=3, background_color=0x000000)
+        title_lbl.anchor_point = (0.5, 0.5)
+        title_lbl.anchored_position = (_W // 2, _H // 2 - 24)
+        grp.append(title_lbl)
+
+        self._status_lbl = label.Label(terminalio.FONT, text="Startet...", color=0x00cc33,
+                                       scale=2, background_color=0x000000)
+        self._status_lbl.anchor_point = (0.5, 0.5)
+        self._status_lbl.anchored_position = (_W // 2, _H // 2 + 44)
+        grp.append(self._status_lbl)
+
+        self._col_x = col_x
+        self._frame = 0
+
+        display.tft.root_group = grp
+        self.tick()
+
+    def set_status(self, text):
+        """Update the status label and refresh immediately."""
+        self._status_lbl.text = text
         display.tft.refresh()
+
+    def tick(self, n=1):
+        """Advance n animation frames."""
+        import random
+        for _ in range(n):
+            for i in range(self._N):
+                self._ys[i] += self._speeds[i]
+                if self._ys[i] > self._H:
+                    self._ys[i] = random.randint(-150, -20)
+                    self._speeds[i] = random.randint(10, 24)
+                self._streams[i].anchored_position = (self._col_x[i], self._ys[i])
+                self._streams[i].text = _CHARS[(self._frame + i * 7) % len(_CHARS)]
+            self._frame += 1
+            display.tft.refresh()

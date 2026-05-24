@@ -12,3 +12,4 @@ boot_out.txt
 
 # Local editor settings
 .vscode/
+.claude/

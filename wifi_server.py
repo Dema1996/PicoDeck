@@ -32,8 +32,20 @@ def _url_decode(s):
     return "".join(out)
 
 
+def _clean_wifi_value(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _start_server():
     global _pool, _server
+    if _server:
+        try:
+            _server.close()
+        except Exception:
+            pass
+        _server = None
     _pool = socketpool.SocketPool(wifi.radio)
     _server = _pool.socket(_pool.AF_INET, _pool.SOCK_STREAM)
     _server.setsockopt(_pool.SOL_SOCKET, _pool.SO_REUSEADDR, 1)
@@ -42,9 +54,132 @@ def _start_server():
     _server.setblocking(False)
 
 
+def _reset_radio():
+    """Full CYW43 radio reset to clear any half-initialized state."""
+    try:
+        wifi.radio.enabled = False
+        time.sleep(2)
+        wifi.radio.enabled = True
+        time.sleep(3)
+        print("radio: full reset ok")
+    except Exception as e:
+        print("radio: enabled failed:", e)
+        try:
+            wifi.radio.stop_ap()
+        except Exception:
+            pass
+        try:
+            wifi.radio.disconnect()
+        except Exception:
+            pass
+        time.sleep(2)
+
+
+def _soft_reset():
+    """Stop AP and disconnect STA to get CYW43 into clean idle state."""
+    try:
+        wifi.radio.stop_ap()
+    except Exception:
+        pass
+    try:
+        wifi.radio.disconnect()
+    except Exception:
+        pass
+    time.sleep(2)
+
+
+def _days_in_month(year, month):
+    if month == 2:
+        leap = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+        return 29 if leap else 28
+    if month in (1, 3, 5, 7, 8, 10, 12):
+        return 31
+    return 30
+
+
+def _apply_tz_offset(year, month, day, hour, minute, second, offset_hours):
+    hour += offset_hours
+    while hour < 0:
+        hour += 24
+        day -= 1
+        if day < 1:
+            month -= 1
+            if month < 1:
+                month = 12
+                year -= 1
+            day = _days_in_month(year, month)
+    while hour >= 24:
+        hour -= 24
+        day += 1
+        dim = _days_in_month(year, month)
+        if day > dim:
+            day = 1
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
+    return year, month, day, hour, minute, second
+
+
+def _is_in_progress_error(err):
+    code = err.args[0] if getattr(err, "args", None) else None
+    return code in (115, 119)
+
+
+def _tcp_read_headers(addr_text, host_header, port=80, timeout=3):
+    sock = _pool.socket(_pool.AF_INET, _pool.SOCK_STREAM)
+    sock.setblocking(True)
+    sock.settimeout(timeout)
+    deadline = time.monotonic() + timeout
+    try:
+        connected = False
+        while time.monotonic() < deadline and not connected:
+            try:
+                sock.connect((addr_text, port))
+                connected = True
+            except OSError as e:
+                if not _is_in_progress_error(e):
+                    raise
+                time.sleep(0.2)
+        if not connected:
+            raise RuntimeError("connect timeout")
+
+        request = ("HEAD / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n"
+                   .format(host_header)).encode()
+        sent = False
+        while time.monotonic() < deadline and not sent:
+            try:
+                sock.sendall(request)
+                sent = True
+            except OSError as e:
+                if not _is_in_progress_error(e):
+                    raise
+                time.sleep(0.2)
+        if not sent:
+            raise RuntimeError("send timeout")
+
+        data = bytearray()
+        while time.monotonic() < deadline and b"\r\n\r\n" not in data and len(data) < 1024:
+            buf = bytearray(128)
+            try:
+                n = sock.recv_into(buf, 128)
+            except OSError as e:
+                if not _is_in_progress_error(e):
+                    raise
+                time.sleep(0.2)
+                continue
+            if n <= 0:
+                break
+            data.extend(buf[:n])
+        return data.decode("utf-8", "ignore")
+    finally:
+        sock.close()
+
+
 def start_ap():
     global active, mode
     try:
+        _soft_reset()
         wifi.radio.start_ap(ssid=SSID, password=_AP_PASSWORD)
         _start_server()
         active = True
@@ -61,7 +196,8 @@ def _ntp_query(addr):
     packet = bytearray(48)
     packet[0] = 0b00100011
     sock = _pool.socket(_pool.AF_INET, _pool.SOCK_DGRAM)
-    sock.settimeout(5)
+    sock.setblocking(True)
+    sock.settimeout(2)
     try:
         sock.sendto(packet, addr)
         sock.recv_into(packet, 48)
@@ -74,39 +210,50 @@ def _http_time_sync():
     import rtc
     _MON = {"Jan":1,"Feb":2,"Mar":3,"Apr":4,"May":5,"Jun":6,
             "Jul":7,"Aug":8,"Sep":9,"Oct":10,"Nov":11,"Dec":12}
-    try:
-        sock = _pool.socket(_pool.AF_INET, _pool.SOCK_STREAM)
-        sock.settimeout(10)
-        addr = _pool.getaddrinfo("clients3.google.com", 80)[0][4]
-        sock.connect(addr)
-        sock.sendall(b"HEAD / HTTP/1.1\r\nHost: clients3.google.com\r\nConnection: close\r\n\r\n")
-        buf = bytearray(512)
-        n = sock.recv_into(buf, 512)
-        sock.close()
-        for line in buf[:n].decode("utf-8", "ignore").split("\r\n"):
-            if line.lower().startswith("date:"):
-                p = line[6:].strip().split()
-                # "Tue, 20 May 2026 14:35:00 GMT"
-                day, mon, year = int(p[1]), _MON.get(p[2], 1), int(p[3])
-                hms = p[4].split(":")
-                hour = (int(hms[0]) + state.tz_offset) % 24
-                t = time.struct_time((year, mon, day, hour, int(hms[1]), int(hms[2]), 0, -1, -1))
-                rtc.RTC().datetime = t
-                state.ntp_synced = True
-                print("HTTP time ok {}-{}-{} {}:{}".format(year, mon, day, hour, int(hms[1])))
-                return True
-    except Exception as e:
-        print("HTTP time error:", e)
+    gw = str(wifi.radio.ipv4_gateway) if wifi.radio.ipv4_gateway else None
+    targets = [
+        (gw, "fritz.box"),
+        ("216.58.212.174", "google.com"),
+    ]
+    for addr_text, host_header in targets:
+        if not addr_text:
+            continue
+        try:
+            text = _tcp_read_headers(addr_text, host_header)
+            for line in text.split("\r\n"):
+                if line.lower().startswith("date:"):
+                    p = line[6:].strip().split()
+                    # "Tue, 20 May 2026 14:35:00 GMT"
+                    day = int(p[1])
+                    mon = _MON.get(p[2], 1)
+                    year = int(p[3])
+                    hms = p[4].split(":")
+                    year, mon, day, hour, minute, second = _apply_tz_offset(
+                        year, mon, day,
+                        int(hms[0]), int(hms[1]), int(hms[2]),
+                        state.tz_offset
+                    )
+                    t = time.struct_time((year, mon, day, hour, minute, second, 0, -1, -1))
+                    rtc.RTC().datetime = t
+                    state.ntp_synced = True
+                    state.time_sync_source = "ntp_http"
+                    print("HTTP time ok {} {}-{}-{} {:02d}:{:02d}".format(
+                        addr_text, year, mon, day, hour, minute))
+                    return True
+        except Exception as e:
+            print("HTTP time {} error: {}".format(addr_text, e))
     return False
 
 
 def _ntp_sync():
     import rtc
+    state.ntp_synced = False
+    state.time_sync_source = "unsynced"
     gw = str(wifi.radio.ipv4_gateway) if wifi.radio.ipv4_gateway else None
-    servers = [s for s in [gw, "pool.ntp.org", "time.google.com", "216.239.35.0"] if s]
+    servers = [s for s in [gw, "216.239.35.0", "129.6.15.28"] if s]
     for host in servers:
         try:
-            addr = _pool.getaddrinfo(host, 123)[0][4]
+            addr = (host, 123)
             ntp_secs = _ntp_query(addr)
             unix_time = ntp_secs - 2208988800 + state.tz_offset * 3600
             t = time.localtime(unix_time)
@@ -114,36 +261,66 @@ def _ntp_sync():
                 host, t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min))
             rtc.RTC().datetime = t
             state.ntp_synced = True
+            state.time_sync_source = "ntp_udp"
             return
         except Exception as e:
             print("NTP {} failed: {}".format(host, e))
     print("NTP: UDP blocked, trying HTTP fallback...")
-    _http_time_sync()
+    if not _http_time_sync():
+        print("NTP: all sync methods failed")
 
 
 def start_sta(ssid, password):
-    global active, mode
-    try:
-        wifi.radio.connect(ssid, password)
-        deadline = time.monotonic() + 12
-        while not wifi.radio.connected:
-            if time.monotonic() > deadline:
-                raise RuntimeError("timeout")
-            time.sleep(0.2)
-        _start_server()
-        active = True
-        mode = "sta"
-        print("IP:", wifi.radio.ipv4_address, "GW:", wifi.radio.ipv4_gateway)
-        _ntp_sync()
-        return True
-    except Exception as e:
-        print("STA start:", e)
-        active = False
+    global _pool, active, mode
+    ssid = _clean_wifi_value(ssid)
+    password = _clean_wifi_value(password)
+    print("STA cfg ssid={} pass_len={}".format(repr(ssid), len(password)))
+    if not ssid:
+        print("STA skipped: empty SSID")
         return False
+    for attempt in range(3):
+        try:
+            if attempt == 0:
+                print("STA prep: stop AP + disconnect")
+                _soft_reset()
+            else:
+                _reset_radio()
+                _soft_reset()
+            print("STA connect attempt", attempt + 1)
+            if password:
+                wifi.radio.connect(ssid, password)
+            else:
+                wifi.radio.connect(ssid)
+            deadline = time.monotonic() + 20
+            while not wifi.radio.connected:
+                if time.monotonic() > deadline:
+                    raise RuntimeError("timeout")
+                time.sleep(0.5)
+            _pool = socketpool.SocketPool(wifi.radio)
+            print("IP:", wifi.radio.ipv4_address, "GW:", wifi.radio.ipv4_gateway)
+            _ntp_sync()
+            _start_server()
+            active = True
+            mode = "sta"
+            return True
+        except Exception as e:
+            print("STA attempt {}: {}".format(attempt + 1, e))
+            active = False
+            mode = "none"
+            _pool = None
+            try:
+                wifi.radio.disconnect()
+            except Exception:
+                pass
+            if attempt < 2:
+                time.sleep(2)
+    return False
 
 
 def start():
     """Try STA if credentials saved, else start AP."""
+    state.ntp_synced = False
+    state.time_sync_source = "unsynced"
     if state.wifi_ssid:
         if start_sta(state.wifi_ssid, state.wifi_password):
             return True
@@ -152,7 +329,7 @@ def start():
 
 
 def stop():
-    global _server, active, mode
+    global _pool, _server, active, mode
     try:
         if _server:
             _server.close()
@@ -163,6 +340,7 @@ def stop():
             wifi.radio.disconnect()
     except Exception:
         pass
+    _pool = None
     active = False
     mode = "none"
 
@@ -178,9 +356,27 @@ def ip():
 
 def _stream_page(conn):
     import menus as _m
+    _wb = bytearray(512)
+    _wn = 0
+
+    def _flush():
+        nonlocal _wn
+        if _wn:
+            conn.sendall(_wb[:_wn])
+            _wn = 0
 
     def w(s):
-        conn.sendall(s if isinstance(s, (bytes, bytearray)) else s.encode())
+        nonlocal _wn
+        b = s if isinstance(s, (bytes, bytearray)) else s.encode()
+        nb = len(b)
+        if nb >= len(_wb):
+            _flush()
+            conn.sendall(b)
+            return
+        if _wn + nb > len(_wb):
+            _flush()
+        _wb[_wn:_wn + nb] = b
+        _wn += nb
 
     # Base CSS — identical to original (bytes only, no allocs)
     w(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
@@ -228,15 +424,13 @@ def _stream_page(conn):
     w("<details open><summary>Buttons &mdash; {}</summary><div class=dp>".format(profile_label))
 
     w(b"<input type=hidden name=__quick value=''>")
-    buf = ("<label>Profil</label><select name=__profile onchange="
-           "\"document.querySelector('[name=__quick]').value='1';this.form.submit()\">")
+    w("<label>Profil</label><select name=__profile onchange="
+      "\"document.querySelector('[name=__quick]').value='1';this.form.submit()\">")
     for p in state.profile_order:
         sel = " selected" if p == state.current_profile else ""
-        buf += '<option value="{}"{}>{}</option>'.format(p, sel, state.profile_labels[p])
-    buf += "</select>"
-    w(buf)
+        w('<option value="{}"{}>{}</option>'.format(p, sel, state.profile_labels[p]))
+    w("</select>")
 
-    valid = sorted(_m.get_valid_actions())
     builtin = set(state.default_button_profiles.keys())
     custom_profiles = [p for p in state.profile_order if p not in builtin]
     if custom_profiles:
@@ -254,16 +448,13 @@ def _stream_page(conn):
     for btn in state.button_order:
         cur = state.button_actions[btn]
         cur_text = cur[5:] if cur.startswith("text:") else ""
-        cur_sel  = "" if cur.startswith("text:") else cur
-        buf = ("<tr><td>{}</td>"
-               "<td><select name='{}'>".format(state.button_pins[btn], btn))
-        for a in valid:
-            sel = " selected" if a == cur_sel else ""
-            buf += '<option value="{}"{}>{}</option>'.format(a, sel, _m.format_action_label(a))
-        buf += ("</select><input type=text name='__text_{}' value='{}' "
-                "placeholder='Text-Makro...' "
-                "style='margin-top:4px;font-size:13px'></td></tr>".format(btn, cur_text))
-        w(buf)
+        cur_val  = "" if cur.startswith("text:") else cur
+        cur_lbl  = _m.format_action_label(cur_val) if cur_val else "(leer)"
+        w("<tr><td>{}</td><td><select class=bs name='{}'>".format(state.button_pins[btn], btn))
+        w('<option value="{}">{}</option>'.format(cur_val, cur_lbl))
+        w("</select><input type=text name='__text_{}' value='{}' "
+          "placeholder='Text-Makro...' "
+          "style='margin-top:4px;font-size:13px'></td></tr>".format(btn, cur_text))
     w(b"</table>")
     if len(state.profile_order) < state.MAX_PROFILES:
         w(b"<div style='margin-top:10px;padding-top:10px;border-top:1px solid #30363d'>"
@@ -277,11 +468,11 @@ def _stream_page(conn):
     w(b"<details><summary>Einstellungen</summary><div class=dp>")
 
     def setting(lbl, name, pairs, cur):
-        s = "<label>{}</label><select name={}>".format(lbl, name)
+        w("<label>{}</label><select name={}>".format(lbl, name))
         for v, vl in pairs:
             sel = " selected" if str(cur) == str(v) else ""
-            s += '<option value="{}"{}>{}</option>'.format(v, sel, vl)
-        w(s + "</select>")
+            w('<option value="{}"{}>{}</option>'.format(v, sel, vl))
+        w("</select>")
 
     setting("Bildschirmschoner", "__ss_timeout",
             [(9999,"Aus"),(15,"15 Sek"),(30,"30 Sek"),(60,"1 Min"),
@@ -308,6 +499,10 @@ def _stream_page(conn):
     setting("Hold-Zeit", "__hold_time",
             [(0.5,"0.5 Sek"),(1.0,"1.0 Sek"),(2.0,"2.0 Sek")],
             state.button_assign_hold_time)
+    setting("Ausrichtung", "__rotation",
+            [(0,"Portrait 0\xb0"),(90,"Landscape 90\xb0"),
+             (180,"Portrait 180\xb0"),(270,"Landscape 270\xb0")],
+            state.display_rotation)
     setting("Invertierung", "__inversion",
             [(0,"Normal"),(1,"Invertiert")], 1 if state.display_inverted else 0)
     setting("Men\xfc-Timeout", "__menu_timeout",
@@ -376,7 +571,23 @@ def _stream_page(conn):
       b"onclick='sa(\"__clear_log\");document.getElementById(\"con\").textContent=\"\"' "
       b"style='margin-top:6px'>Konsole leeren</button>")
 
-    w(b"</div></details></body></html>")
+    w(b"</div></details>")
+    import gc as _gc
+    _gc.collect()
+    valid = sorted(_m.get_valid_actions())
+    w(b"<script>var A=[")
+    first_a = True
+    for a in valid:
+        lbl = _m.format_action_label(a)
+        w(('' if first_a else ',') + '["{}", "{}"]'.format(a, lbl))
+        first_a = False
+    w(b"];(function(){var ss=document.querySelectorAll('select.bs'),j,s,c,k,o;"
+      b"for(j=0;j<ss.length;j++){s=ss[j];c=s.value;"
+      b"for(k=0;k<A.length;k++){if(A[k][0]!==c){"
+      b"o=document.createElement('option');"
+      b"o.value=A[k][0];o.text=A[k][1];s.appendChild(o);}}"
+      b"s.value=c;}})()</script></body></html>")
+    _flush()
 
 
 def _parse_body(req):
@@ -449,6 +660,40 @@ def _handle(conn):
         conn.sendall(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                       "Content-Length: {}\r\nCache-Control: no-store\r\n"
                       "Connection: close\r\n\r\n").format(len(enc)).encode() + enc)
+
+    elif method == "GET" and path == "/actions":
+        import menus as _m, gc
+        gc.collect()
+        valid = sorted(_m.get_valid_actions())
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                     b"Cache-Control: max-age=60\r\nConnection: close\r\n\r\n")
+        _wb = bytearray(512)
+        _wn = 0
+        def _af():
+            nonlocal _wn
+            if _wn:
+                conn.sendall(_wb[:_wn])
+                _wn = 0
+        def _aw(s):
+            nonlocal _wn
+            b = s if isinstance(s, (bytes, bytearray)) else s.encode()
+            nb = len(b)
+            if nb >= len(_wb):
+                _af()
+                conn.sendall(b)
+                return
+            if _wn + nb > len(_wb):
+                _af()
+            _wb[_wn:_wn + nb] = b
+            _wn += nb
+        _aw(b"[")
+        first = True
+        for a in valid:
+            lbl = _m.format_action_label(a)
+            _aw(('' if first else ',') + '["{}", "{}"]'.format(a, lbl))
+            first = False
+        _aw(b"]")
+        _af()
 
     elif method == "GET" and path == "/js":
         js = (
@@ -523,15 +768,30 @@ def _handle(conn):
                     state.remote_nav = action
         conn.sendall(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
 
+    elif method == "GET" and path == "/ping":
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\npong")
+
     elif method == "GET" and path == "/":
+        del buf, req  # free 2 KB request buffer before streaming the page
         gc.collect()
-        _stream_page(conn)
+        try:
+            _stream_page(conn)
+        except Exception as e:
+            try:
+                conn.sendall(("HTTP/1.1 500 Internal Server Error\r\n"
+                              "Content-Type: text/plain; charset=utf-8\r\n"
+                              "Connection: close\r\n\r\n"
+                              "Fehler: " + str(e)).encode())
+            except Exception:
+                pass
+            import console_log as _cl
+            _cl.log("page err: " + str(e))
 
     elif method == "GET":
         conn.sendall(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n")
 
     elif method == "POST" and path == "/save":
-        global needs_redraw
+        global needs_redraw, needs_reboot
         body = _parse_body(req)
         if body:
             valid_actions = menus.get_valid_actions()
@@ -604,6 +864,15 @@ def _handle(conn):
                 elif k == "__hold_time":
                     try:
                         state.button_assign_hold_time = float(v)
+                    except (ValueError, TypeError):
+                        pass
+                elif k == "__rotation":
+                    try:
+                        rot = int(v)
+                        if rot in (0, 90, 180, 270) and rot != state.display_rotation:
+                            state.display_rotation = rot
+                            state.needs_touch_calibration = True
+                            needs_reboot = True
                     except (ValueError, TypeError):
                         pass
                 elif k == "__inversion":
@@ -717,7 +986,6 @@ def _handle(conn):
         conn.sendall(reboot_page)
         body = _parse_body(req)
         if body:
-            global needs_reboot
             params = {}
             for pair in body.split("&"):
                 if "=" in pair:
@@ -737,7 +1005,8 @@ def poll():
     if not active or _server is None:
         return
     try:
-        conn, _ = _server.accept()
+        conn, addr = _server.accept()
+        print("HTTP:", addr)
         conn.setblocking(True)
         try:
             _handle(conn)

@@ -1,5 +1,7 @@
 _LOG = []
 _MAX = 50
+_LAST_EXCEPTION = []
+_LAST_EXCEPTION_MAX = 8
 
 
 def setup():
@@ -23,3 +25,15 @@ def get_lines():
 
 def clear():
     del _LOG[:]
+
+
+def add_exception(context, err):
+    entry = "{}: {}".format(context, str(err))[:160]
+    _LAST_EXCEPTION.append(entry)
+    if len(_LAST_EXCEPTION) > _LAST_EXCEPTION_MAX:
+        del _LAST_EXCEPTION[0]
+    log("ERR " + entry)
+
+
+def get_last_exception():
+    return list(_LAST_EXCEPTION)
